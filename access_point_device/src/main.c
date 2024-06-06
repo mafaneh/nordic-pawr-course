@@ -4,20 +4,38 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/sys/byteorder.h>
+
 #include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+
+#include <zephyr/drivers/sensor.h>
+
+typedef struct sensor_data_s
+{
+    // Temperature value
+    struct sensor_value temp;
+
+    // Humidity value
+    struct sensor_value humidity;
+} sensor_data_t;
 
 #define NUM_RSP_SLOTS 5
 #define NUM_SUBEVENTS 5
 #define PACKET_SIZE   5
 #define NAME_LEN      30
 
+// Device Discovery Definitions
+#define NOVEL_BITS_COMPANY_ID 0x08D3
+
 static K_SEM_DEFINE(sem_connected, 0, 1);
 static K_SEM_DEFINE(sem_discovered, 0, 1);
 static K_SEM_DEFINE(sem_written, 0, 1);
 static K_SEM_DEFINE(sem_disconnected, 0, 1);
+
+static uint8_t sensor_1_reading = 0;
 
 static struct bt_uuid_128 pawr_char_uuid =
 	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
@@ -92,7 +110,13 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
 {
 	if (buf) {
 		printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
-		bt_data_parse(buf, print_ad_field, NULL);
+
+        // Print the sensor data
+        sensor_data_t *sensor_data = (sensor_data_t *)buf->data;
+
+        printk("\n---- SENSOR DATA ----\n Temperature: %.2f °C\n Humidity: %0.2f %%\n\n",
+			sensor_value_to_double(&sensor_data->temp),
+			sensor_value_to_double(&sensor_data->humidity));
 	} else {
 		printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
 		       info->response_slot);
@@ -138,18 +162,45 @@ BT_CONN_CB_DEFINE(conn_cb) = {
 	.remote_info_available = remote_info_available_cb,
 };
 
+typedef struct adv_data
+{
+    // Device Name
+    char name[NAME_LEN];
+
+    /* data */
+    bool novelbits_id_present;
+    uint8_t data[30];
+
+} specific_adv_data_t;
+
 static bool data_cb(struct bt_data *data, void *user_data)
 {
-	char *name = user_data;
+	specific_adv_data_t *adv_data_struct = user_data;
 	uint8_t len;
 
 	switch (data->type) {
 	case BT_DATA_NAME_SHORTENED:
 	case BT_DATA_NAME_COMPLETE:
 		len = MIN(data->data_len, NAME_LEN - 1);
-		memcpy(name, data->data, len);
-		name[len] = '\0';
-		return false;
+		memcpy(adv_data_struct->name, data->data, len);
+		adv_data_struct->name[len] = '\0';
+		return true;
+
+    case BT_DATA_MANUFACTURER_DATA:
+        if (data->data_len < 3) {
+            return true;
+        }
+
+        if (sys_get_le16(&(data->data[0])) != NOVEL_BITS_COMPANY_ID) {
+            return true;
+        }
+
+        printk("Found Novel Bits Company ID\n");
+
+        adv_data_struct->novelbits_id_present = true;
+        memcpy(adv_data_struct->data, &data->data[0], data->data_len);
+
+        return false;
 	default:
 		return true;
 	}
@@ -159,7 +210,8 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 			 struct net_buf_simple *ad)
 {
 	char addr_str[BT_ADDR_LE_STR_LEN];
-	char name[NAME_LEN];
+
+    specific_adv_data_t device_ad_data;
 	int err;
 
 	if (default_conn) {
@@ -171,12 +223,15 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 		return;
 	}
 
-	(void)memset(name, 0, sizeof(name));
-	bt_data_parse(ad, data_cb, name);
+	(void)memset(&device_ad_data, 0, sizeof(device_ad_data));
+	bt_data_parse(ad, data_cb, &device_ad_data);
 
-	if (strcmp(name, "PAwR sync sample")) {
-		return;
-	}
+    if (!device_ad_data.novelbits_id_present) {
+        return;
+    }
+
+    printk("Device found: %s (RSSI %d)\n", device_ad_data.name, rssi);
+    printk("Manufacturer specific data [Novel Bits]. ID = 0x%02X\n", device_ad_data.data[2]);
 
 	if (bt_le_scan_stop()) {
 		return;
@@ -241,6 +296,30 @@ void init_bufs(void)
 	}
 }
 
+static ssize_t read_sensor_1(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf, uint16_t len, uint16_t offset)
+{
+	const char *value = attr->user_data;
+
+    sensor_1_reading++;
+
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, value,
+                sizeof(*value));
+}
+
+static struct bt_uuid_128 ws_service_uuid =
+	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef2));
+static struct bt_uuid_128 ws_sensor_1_char_uuid =
+	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef3));
+static struct bt_uuid_128 ws_sensor_2_char_uuid =
+	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef4));
+static struct bt_uuid_128 ws_sensor_3_char_uuid =
+	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef5));
+
+BT_GATT_SERVICE_DEFINE(ws_svc, BT_GATT_PRIMARY_SERVICE(&ws_service_uuid.uuid),
+		       BT_GATT_CHARACTERISTIC(&ws_sensor_1_char_uuid.uuid, BT_GATT_CHRC_READ,
+					      BT_GATT_PERM_READ, read_sensor_1, NULL,
+					      &sensor_1_reading));
+
 #define MAX_SYNCS (NUM_SUBEVENTS * NUM_RSP_SLOTS)
 struct pawr_timing {
 	uint8_t subevent;
@@ -267,6 +346,13 @@ int main(void)
 		printk("Bluetooth init failed (err %d)\n", err);
 		return 0;
 	}
+
+    err = bt_le_adv_start(BT_LE_ADV_CONN, NULL, 0, NULL, 0);
+    if (err && err != -EALREADY) {
+        printk("Advertising failed to start (err %d) @ %d\n", err, __LINE__);
+
+        return 0;
+    }
 
 	/* Create a non-connectable non-scannable advertising set */
 	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN, &adv_cb, &pawr_adv);
@@ -297,7 +383,7 @@ int main(void)
 	}
 
 	while (num_synced < MAX_SYNCS) {
-		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE, device_found);
+		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
 		if (err) {
 			printk("Scanning failed to start (err %d)\n", err);
 			return 0;

@@ -26,7 +26,17 @@
 #include <zephyr/drivers/sensor/sht4x.h>
 
 static const struct device *sht = DEVICE_DT_GET_ANY(sensirion_sht4x);
-static struct sensor_value sensor_temp, sensor_humidity; 
+
+typedef struct sensor_data_s
+{
+    // Temperature value
+    struct sensor_value temp;
+
+    // Humidity value
+    struct sensor_value humidity;
+} sensor_data_t;
+
+static sensor_data_t sensor_data; 
 
 #define LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include <zephyr/logging/log.h>
@@ -46,6 +56,25 @@ static struct __packed {
 
 } pawr_timing;
 
+// Company ID for Novel Bits (used for the manufacturer data)
+#define NOVEL_BITS_COMPANY_ID 0x08D3
+
+// Increment this value for each device
+#define DEVICE_ID 0x01
+
+// Sensor-related variables
+static bool adv_started;
+
+// Advertising data
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_NAME_COMPLETE, 'N', 'o', 'v', 'e', 'l', ' ', 'B', 'i', 't', 's'),
+	BT_DATA_BYTES(BT_DATA_MANUFACTURER_DATA,
+                  (NOVEL_BITS_COMPANY_ID & 0xFF),
+                  ((NOVEL_BITS_COMPANY_ID >> 8) & 0xFF),
+                  DEVICE_ID)
+};
+
+// Display Power Management
 int suspend_display(const struct device *display_dev,
 		    const struct device *display_bus_dev)
 {
@@ -93,8 +122,8 @@ void sensor_capture_data(void)
         return;
     }
 
-    sensor_channel_get(sht, SENSOR_CHAN_AMBIENT_TEMP, &sensor_temp);
-    sensor_channel_get(sht, SENSOR_CHAN_HUMIDITY, &sensor_humidity);
+    sensor_channel_get(sht, SENSOR_CHAN_AMBIENT_TEMP, &sensor_data.temp);
+    sensor_channel_get(sht, SENSOR_CHAN_HUMIDITY, &sensor_data.humidity);
 }
 
 static void sync_cb(struct bt_le_per_adv_sync *sync, struct bt_le_per_adv_sync_synced_info *info)
@@ -166,10 +195,11 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
 	if (buf && buf->len) {
 		/* Echo the data back to the advertiser */
 		net_buf_simple_reset(&rsp_buf);
-		net_buf_simple_add_mem(&rsp_buf, buf->data, buf->len);
+        net_buf_simple_add_mem(&rsp_buf, &sensor_data, sizeof(sensor_data));
 
 		rsp_params.request_event = info->periodic_event_counter;
 		rsp_params.request_subevent = info->subevent;
+
 		/* Respond in current subevent and assigned response slot */
 		rsp_params.response_subevent = info->subevent;
 		rsp_params.response_slot = pawr_timing.response_slot;
@@ -253,6 +283,7 @@ void connected(struct bt_conn *conn, uint8_t err)
 	}
 
 	default_conn = bt_conn_ref(conn);
+    adv_started = false;
 }
 
 void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -271,7 +302,6 @@ BT_CONN_CB_DEFINE(conn_cb) = {
 int main(void)
 {
 	int err;
-	bool adv_started = false;
 	static lv_style_t style1;
 	lv_style_init(&style1);
 	struct bt_le_per_adv_sync_transfer_param past_param;
@@ -323,8 +353,8 @@ int main(void)
 
 		resume_display(display_dev, display_bus_dev);
 		sprintf(text, "---- SENSOR DATA ----\n\n Temperature: %.2f °C\n Humidity: %0.2f %%",
-			sensor_value_to_double(&sensor_temp),
-			sensor_value_to_double(&sensor_humidity));
+			sensor_value_to_double(&sensor_data.temp),
+			sensor_value_to_double(&sensor_data.humidity));
 		lv_label_set_text(obj, text);
 		lv_task_handler();
 		suspend_display(display_dev, display_bus_dev);
@@ -336,11 +366,9 @@ int main(void)
 		}
 
 		err = bt_le_adv_start(
-			BT_LE_ADV_PARAM(BT_LE_ADV_OPT_ONE_TIME | BT_LE_ADV_OPT_CONNECTABLE |
-						BT_LE_ADV_OPT_USE_NAME |
-						BT_LE_ADV_OPT_FORCE_NAME_IN_AD,
-					BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL),
-			NULL, 0, NULL, 0);
+			BT_LE_ADV_PARAM(BT_LE_ADV_OPT_ONE_TIME | BT_LE_ADV_OPT_CONNECTABLE,
+					BT_GAP_ADV_FAST_INT_MIN_1, BT_GAP_ADV_FAST_INT_MAX_1, NULL),
+			ad, ARRAY_SIZE(ad), NULL, 0);
 		if (err && err != -EALREADY) {
 			printk("Advertising failed to start (err %d)\n", err);
 

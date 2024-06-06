@@ -16,6 +16,5 @@
         compatible = "sensirion,sht4x";
         repeatability = <2>;
         reg = <0x44>;
-        label = "SHT4X";
     };
 };
