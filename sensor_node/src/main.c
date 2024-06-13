@@ -24,13 +24,16 @@
 #include <lvgl_input_device.h>
 #include <zephyr/pm/device.h>
 
-// Display-related definitions
-static lv_style_t style1;
-static lv_obj_t * obj;
-
 // Sensor-related includes and definitions
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/sensor/sht4x.h>
+
+// Change this value for each device
+#define DEVICE_ID 1
+
+// Display-related definitions
+static lv_style_t style1;
+static lv_obj_t * obj;
 
 static const struct device *sht = DEVICE_DT_GET_ANY(sensirion_sht4x);
 
@@ -56,9 +59,6 @@ LOG_MODULE_REGISTER(app);
 // Company ID for Novel Bits (used for the manufacturer data)
 #define NOVEL_BITS_COMPANY_ID 0x08D3
 
-// Change this value for each device
-#define DEVICE_ID 0x02
-
 // Advertising data
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_NAME_COMPLETE, 'N', 'o', 'v', 'e', 'l', ' ', 'B', 'i', 't', 's'),
@@ -73,7 +73,7 @@ static const struct bt_data ad[] = {
 #define PAWR_CMD_REQUEST_HUMIDITY 0x02
 
 static struct bt_conn *default_conn;
-static struct bt_le_per_adv_sync *default_sync;
+static struct bt_le_per_adv_sync *default_sync = NULL;
 
 static struct __packed {
 	uint8_t subevent;
@@ -119,19 +119,19 @@ static void notsynced_entry(void *o)
 {
 	int err;
 
-	// Register callbacks for periodic adv sync
-	bt_le_per_adv_sync_cb_register(&sync_callbacks);
+	// // Register callbacks for periodic adv sync
+	// bt_le_per_adv_sync_cb_register(&sync_callbacks);
 
-	// Subscribe to PAST events
-	past_param.skip = 0;
-	past_param.timeout = 1000; /* 10 seconds */
-	past_param.options = BT_LE_PER_ADV_SYNC_TRANSFER_OPT_NONE;
-	err = bt_le_per_adv_sync_transfer_subscribe(NULL, &past_param);
-	if (err) {
-		printk("PAST subscribe failed (err %d)\n", err);
-		return;
-	}	
-	printk("Subscribed to PAST events\n");
+	// // Subscribe to PAST events
+	// past_param.skip = 1;
+	// past_param.timeout = 1000; /* 10 seconds */
+	// past_param.options = BT_LE_PER_ADV_SYNC_TRANSFER_OPT_NONE;
+	// err = bt_le_per_adv_sync_transfer_subscribe(NULL, &past_param);
+	// if (err) {
+	// 	printk("PAST subscribe failed (err %d)\n", err);
+	// 	return;
+	// }	
+	// printk("Subscribed to PAST events\n");
 
     // Start advertising
 	err = bt_le_adv_start(
@@ -143,6 +143,7 @@ static void notsynced_entry(void *o)
 
 	printk("Started Advertising... Waiting for periodic sync info..\n");    
 }
+
 static void notsynced_run(void *o)
 {
 
@@ -233,12 +234,6 @@ void sensor_capture_data(void)
     sensor_channel_get(sht, SENSOR_CHAN_HUMIDITY, &sensor_data.humidity);
 }
 
-static void state_changed_cb(struct bt_le_per_adv_sync *sync,
-			      const struct bt_le_per_adv_sync_state_info *info)
-{
-    printk("Sync state changed: %d\n", info->recv_enabled);
-}
-
 static void sync_cb(struct bt_le_per_adv_sync *sync, struct bt_le_per_adv_sync_synced_info *info)
 {
 	char le_addr[BT_ADDR_LE_STR_LEN];
@@ -285,13 +280,6 @@ static bool print_ad_field(struct bt_data *data, void *user_data)
 {
 	uint8_t *request_command = ((uint8_t *)user_data);
 
-	printk("    0x%02X: ", data->type);
-	for (size_t i = 0; i < data->data_len; i++) {
-		printk("%02X", data->data[i]);
-	}
-
-	printk("\n");
-
     if (data->type == BT_DATA_MANUFACTURER_DATA)
     {
         uint16_t company_id = (data->data[1] << 8) | data->data[0];
@@ -313,6 +301,12 @@ static struct bt_le_per_adv_response_params rsp_params;
 // Response buffer
 NET_BUF_SIMPLE_DEFINE_STATIC(rsp_buf, 247);
 
+// Function to handle state changes
+static void state_changed_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_state_info *info)
+{
+    printk("Recv enabled: %d\n", info->recv_enabled);
+}
+
 static void recv_cb(struct bt_le_per_adv_sync *sync,
 		    const struct bt_le_per_adv_sync_recv_info *info, struct net_buf_simple *buf)
 {
@@ -325,6 +319,25 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
         // Clear missing indication count
         missed_indications = 0;
 
+        if (info->subevent != pawr_timing.subevent)
+        {
+            printk("Received indication for subevent %d, but expected subevent %d\n", info->subevent, pawr_timing.subevent);
+
+            // Sync to the correct subevent
+            uint8_t subevents[1];
+            struct bt_le_per_adv_sync_subevent_params params;
+            params.properties = 0;
+            params.num_subevents = 1;
+            params.subevents = subevents;
+            subevents[0] = pawr_timing.subevent;
+
+            err = bt_le_per_adv_sync_subevent(sync, &params);
+            if (err) {
+                printk("Failed to set subevents to sync to (err %d)\n", err);
+            }
+            return;
+        }
+
         printk("Indication: subevent %d, responding in slot %d\n", info->subevent,
 		       pawr_timing.response_slot);
 		bt_data_parse(buf, print_ad_field, &request_command);
@@ -335,14 +348,14 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
         // Check for command type (Temperature vs. Humidity)
         if (request_command == PAWR_CMD_REQUEST_TEMP)
         {
-            printk("Received request for temperature data\n");
+            printk("Received request for temperature data. Responding with Temperature = %.2f °C\n", sensor_value_to_double(&sensor_data.temp));
             net_buf_simple_add_mem(&rsp_buf, &device_id, sizeof(device_id));
             net_buf_simple_add_mem(&rsp_buf, &request_command, sizeof(request_command));
             net_buf_simple_add_mem(&rsp_buf, &sensor_data.temp, sizeof(sensor_data.temp));
         }
         else if (request_command == PAWR_CMD_REQUEST_HUMIDITY)
         {
-            printk("Received request for humidity data\n");
+            printk("Received request for humidity data. Responding with Humidity = %0.2f %%\n", sensor_value_to_double(&sensor_data.humidity));
             net_buf_simple_add_mem(&rsp_buf, &device_id, sizeof(device_id));
             net_buf_simple_add_mem(&rsp_buf, &request_command, sizeof(request_command));
             net_buf_simple_add_mem(&rsp_buf, &sensor_data.humidity, sizeof(sensor_data.humidity));
@@ -404,28 +417,16 @@ static ssize_t write_timing(struct bt_conn *conn, const struct bt_gatt_attr *att
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
+	if (!default_sync)
+    {
+		// printk("Not synced yet. Delaying the new PAwR Subevent Timing for a bit\n");
+        // k_msleep(500);
+	}     
+
 	memcpy(&pawr_timing, buf, len);
 
 	printk("New timing: subevent %d, response slot %d\n", pawr_timing.subevent,
-	       pawr_timing.response_slot);
-
-    struct bt_le_per_adv_sync_subevent_params params;
-	uint8_t subevents[1];
-	int err;
-
-	params.properties = 0;
-	params.num_subevents = 1;
-	params.subevents = subevents;
-	subevents[0] = pawr_timing.subevent;       
-
-	if (default_sync) {
-		err = bt_le_per_adv_sync_subevent(default_sync, &params);
-		if (err) {
-			printk("Failed to set subevents to sync to (err %d)\n", err);
-		}
-	} else {
-		printk("Not synced yet\n");
-	}           
+	       pawr_timing.response_slot);    
 
 	return len;
 }
@@ -482,7 +483,7 @@ void update_display_with_sensor_data(lv_obj_t * obj, const struct device *displa
     char text[200];
 
     resume_display(display_dev, display_bus_dev);
-    sprintf(text, "---- SENSOR #%d ----\n\n Temperature: %.2f °C\n Humidity: %0.2f %%",
+    sprintf(text, "---- SENSOR NODE #%d ----\n\n Temperature: %.2f °C\n Humidity: %0.2f %%",
         DEVICE_ID,
         sensor_value_to_double(&sensor_data.temp),
         sensor_value_to_double(&sensor_data.humidity));
@@ -501,14 +502,14 @@ int main(void)
 	const struct device *display_dev;
 	const struct device *display_bus_dev;
 
+    sensor_capture_data();
+
 	display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
 	display_bus_dev = DEVICE_DT_GET(DT_PARENT(DT_CHOSEN(zephyr_display)));
 	if (!device_is_ready(display_dev)) {
 		LOG_ERR("Device not ready, aborting test");
 		return 0;
 	}
-
-    initialize_display(display_dev, display_bus_dev);
 
 	printk("Starting Periodic Advertising with Responses Synchronization Demo\n");
 
@@ -518,26 +519,29 @@ int main(void)
 		return 0;
 	}
 
+	// Register callbacks for periodic adv sync
+	bt_le_per_adv_sync_cb_register(&sync_callbacks);
+
+	// Subscribe to PAST events
+	past_param.skip = 5;
+	past_param.timeout = 1000; /* 10 seconds */
+	// past_param.options = BT_LE_PER_ADV_SYNC_TRANSFER_OPT_FILTER_DUPLICATES;
+    past_param.options = BT_LE_PER_ADV_SYNC_TRANSFER_OPT_NONE;
+	err = bt_le_per_adv_sync_transfer_subscribe(NULL, &past_param);
+	if (err) {
+		printk("PAST subscribe failed (err %d)\n", err);
+		return 0;
+	}	
+	printk("Subscribed to PAST events\n");
+
 	/* Set initial state */
 	smf_set_initial(SMF_CTX(&s_obj), &endnode_states[NotSynced]);
 
     printk("Initializing system for Device #%d\n", DEVICE_ID);
 
+    initialize_display(display_dev, display_bus_dev); 
+
 	while (1) {
-
-        // Only update sensor reading every 5 seconds
-        if (counter % 5 == 0)
-        {
-            // Capture sensor data
-            sensor_capture_data();
-        }
-
-        // Only update sensor reading and display every 30 seconds
-        if (counter % 30 == 0)
-        {
-            // Update display with sensor data
-            update_display_with_sensor_data(obj, display_dev, display_bus_dev);
-        }
 
         // Run the state machine
 		ret = smf_run_state(SMF_CTX(&s_obj));
@@ -547,8 +551,22 @@ int main(void)
 			break;
 		}
 
-        // Sleep for 1 second
-		k_msleep(1000);
+        // Only update sensor reading every 5 seconds
+        if (counter % 50 == 0)
+        {
+            // Capture sensor data
+            sensor_capture_data();
+        }
+
+        // Only update sensor reading and display every 30 seconds
+        if (counter % 300 == 0)
+        {
+            // Update display with sensor data
+            update_display_with_sensor_data(obj, display_dev, display_bus_dev);
+        }
+
+        // Sleep for 100 msec
+		k_msleep(100);
         counter++;
 	}
 

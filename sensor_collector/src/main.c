@@ -22,7 +22,7 @@ static uint32_t sensor_temp_values[NUM_SENSORS] = {0};
 static uint32_t sensor_hum_values[NUM_SENSORS] = {0};
 
 #define NUM_RSP_SLOTS 1
-#define NUM_SUBEVENTS 5
+#define NUM_SUBEVENTS 3
 #define PACKET_SIZE   5
 #define NAME_LEN      30
 
@@ -44,11 +44,11 @@ static struct bt_uuid_128 pawr_char_uuid =
 	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 static uint16_t pawr_attr_handle;
 static const struct bt_le_per_adv_param per_adv_params = {
-	.interval_min = 0x1FE,
-	.interval_max = 0x1FE,
+	.interval_min = 800,
+	.interval_max = 800,
 	.options = 0,
 	.num_subevents = NUM_SUBEVENTS,
-	.subevent_interval = 0x50,
+	.subevent_interval = 0x30,
 	.response_slot_delay = 0x5,
 	.response_slot_spacing = 0x50,
 	.num_response_slots = NUM_RSP_SLOTS,
@@ -77,66 +77,12 @@ uint32_t quick_ieee11073_from_float(float temperature)
     return (((uint32_t)exponent) << 24) | mantissa;
 }
 
-static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_data_request *request)
-{
-	int err;
-	uint8_t to_send;
-	struct net_buf_simple *buf;
-
-	to_send = MIN(request->count, ARRAY_SIZE(subevent_data_params));
-
-	for (size_t i = 0; i < to_send; i++) {
-		buf = &bufs[i];
-		buf->data[buf->len - 1] = current_pawr_command;
-
-		subevent_data_params[i].subevent =
-			(request->start + i) % per_adv_params.num_subevents;
-		subevent_data_params[i].response_slot_start = 0;
-		subevent_data_params[i].response_slot_count = NUM_RSP_SLOTS;
-		subevent_data_params[i].data = buf;
-	}
-
-	k_sleep(K_MSEC(10));
-
-	err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
-	if (err) {
-		printk("Failed to set subevent data (err %d)\n", err);
-	}
-}
-
 static struct bt_conn *central_conn;
 static struct bt_conn *peripheral_conn;
 
+static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_data_request *request);
 static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
-		     struct net_buf_simple *buf)
-{
-	if (buf) {
-        const struct sensor_value * sensor_val;
-
-        sensor_val = (const struct sensor_value *)&(buf->data[2]);
-
-		printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
-
-        // Print the sensor data
-        if (buf->data[1] == PAWR_CMD_REQUEST_TEMP) {
-            printk("Received temperature data\n");
-            double temp_local = sensor_value_to_double(sensor_val);
-            sensor_temp_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(temp_local);  
-
-            printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[0], temp_local);
-        } else if (buf->data[1] == PAWR_CMD_REQUEST_HUMIDITY) {
-            printk("Received humidity data\n");
-            double hum_local = sensor_value_to_double(sensor_val);
-            sensor_hum_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(hum_local);
-            printk("\n---- SENSOR NODE #%d ----\n Humidity: %0.2f %%\n", (uint8_t)buf->data[0], sensor_value_to_double(sensor_val));
-        } else {
-            printk("Unknown data received\n");
-        }
-	} else {
-		printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
-		       info->response_slot);
-	}
-}
+		     struct net_buf_simple *buf);
 
 static const struct bt_le_ext_adv_cb adv_cb = {
 	.pawr_data_request = request_cb,
@@ -145,8 +91,10 @@ static const struct bt_le_ext_adv_cb adv_cb = {
 
 void connected_cb(struct bt_conn *conn, uint8_t err)
 {
+
     printk("Connected (err 0x%02X)\n", err);
 
+    // Error case
 	if (err) {
         if (conn == central_conn) {
             bt_conn_unref(central_conn);
@@ -157,6 +105,17 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
             peripheral_conn = NULL;
         }
 	}
+    // Success Case
+    else
+    {
+        if (conn != central_conn)
+        {
+            // Connected as a Peripheral
+            printk("Connected as a Peripheral\n");
+            peripheral_conn = bt_conn_ref(conn);
+        }
+        
+    }
 }
 
 void disconnected_cb(struct bt_conn *conn, uint8_t reason)
@@ -176,8 +135,11 @@ void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 
 void remote_info_available_cb(struct bt_conn *conn, struct bt_conn_remote_info *remote_info)
 {
-	/* Need to wait for remote info before initiating PAST */
-	k_sem_give(&sem_connected);
+	/* Need to wait for remote info before initiating PAST  -- only as a Central*/
+
+    if (conn == central_conn) {
+    	k_sem_give(&sem_connected);
+    }
 }
 
 BT_CONN_CB_DEFINE(conn_cb) = {
@@ -360,15 +322,10 @@ static ssize_t read_sensor_3_hum(struct bt_conn *conn, const struct bt_gatt_attr
     return bt_gatt_attr_read(conn, attr, buf, len, offset, &sensor_hum_values[2], sizeof(uint32_t));
 }
 
-static ssize_t read_sensor_4_temp(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf, uint16_t len, uint16_t offset)
-{
-    return bt_gatt_attr_read(conn, attr, buf, len, offset, &sensor_temp_values[3], sizeof(uint32_t));
-}
-
-static ssize_t read_sensor_4_hum(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf, uint16_t len, uint16_t offset)
-{
-    return bt_gatt_attr_read(conn, attr, buf, len, offset, &sensor_hum_values[3], sizeof(uint32_t));
-}
+// static void sensor_1_temp_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
+// {
+//     printk("Sensor 1 Temperature Notification: %s\n", value == BT_GATT_CCC_NOTIFY ? "enabled" : "disabled");
+// }
 
 // Format for the temperature characteristic
 static const struct bt_gatt_cpf temp_cpf = {
@@ -408,12 +365,8 @@ static struct bt_uuid_128 ws_sensor_3_temp_char_uuid =
 static struct bt_uuid_128 ws_sensor_3_hum_char_uuid =
 	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef8));
 
-// Sensor 4 Temperature: 12345678-1234-5678-1234-56789abcdef9
-static struct bt_uuid_128 ws_sensor_4_temp_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef9));
-// Sensor 4 Humidity: 12345678-1234-5678-1234-56789abcdefa
-static struct bt_uuid_128 ws_sensor_4_hum_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdefa));
+// Offset between each CCC descriptor for temperature and humidity characteristics
+#define CCC_OFFSET 8
 
 BT_GATT_SERVICE_DEFINE(
     ws_svc,
@@ -421,94 +374,160 @@ BT_GATT_SERVICE_DEFINE(
     // Simple Service
     BT_GATT_PRIMARY_SERVICE(&ws_service_uuid.uuid),
 
-    // Sensor 1 Temperature Characteristic  
+    // Sensor 1 Temperature Characteristic  [1,2]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_1_temp_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_1_temp,
                     NULL,
                     &sensor_temp_values[0]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
     BT_GATT_CPF(&temp_cpf),
     BT_GATT_CUD(SENSOR_1_TEMP_DESCRIPTION, BT_GATT_PERM_READ),
 
-    // Sensor 1 Humidity Characteristic  
+    // Sensor 1 Humidity Characteristic  [6,7]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_1_hum_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_1_hum,
                     NULL,
-                    &sensor_hum_values[0]),    
+                    &sensor_hum_values[0]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),    
     BT_GATT_CPF(&hum_cpf),
     BT_GATT_CUD(SENSOR_1_HUM_DESCRIPTION, BT_GATT_PERM_READ),
 
-    // Sensor 2 Temperature Characteristic
+    // Sensor 2 Temperature Characteristic [11, 12]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_2_temp_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_2_temp,
                     NULL,
                     &sensor_temp_values[1]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
     BT_GATT_CPF(&temp_cpf),
     BT_GATT_CUD(SENSOR_2_TEMP_DESCRIPTION, BT_GATT_PERM_READ),
 
-    // Sensor 2 Humidity Characteristic
+    // Sensor 2 Humidity Characteristic [16,17]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_2_hum_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_2_hum,
                     NULL,
                     &sensor_hum_values[1]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
     BT_GATT_CPF(&hum_cpf),
     BT_GATT_CUD(SENSOR_2_HUM_DESCRIPTION, BT_GATT_PERM_READ),
 
-    // Sensor 3 Temperature Characteristic
+    // Sensor 3 Temperature Characteristic [21, 22]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_3_temp_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_3_temp,
                     NULL,
                     &sensor_temp_values[2]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
     BT_GATT_CPF(&temp_cpf),
     BT_GATT_CUD(SENSOR_3_TEMP_DESCRIPTION, BT_GATT_PERM_READ),
 
-    // Sensor 3 Humidity Characteristic
+    // Sensor 3 Humidity Characteristic [26,27]
     // Properties: Read
     BT_GATT_CHARACTERISTIC(&ws_sensor_3_hum_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
+                    BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_READ,
                     BT_GATT_PERM_READ,
                     read_sensor_3_hum,
                     NULL,
                     &sensor_hum_values[2]),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
     BT_GATT_CPF(&hum_cpf),
     BT_GATT_CUD(SENSOR_3_HUM_DESCRIPTION, BT_GATT_PERM_READ),
-
-    // Sensor 4 Temperature Characteristic
-    // Properties: Read
-    BT_GATT_CHARACTERISTIC(&ws_sensor_4_temp_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
-                    BT_GATT_PERM_READ,
-                    read_sensor_4_temp,
-                    NULL,
-                    &sensor_temp_values[3]),
-    BT_GATT_CPF(&temp_cpf),
-    BT_GATT_CUD(SENSOR_4_TEMP_DESCRIPTION, BT_GATT_PERM_READ),
-
-    // Sensor 4 Humidity Characteristic
-    // Properties: Read
-    BT_GATT_CHARACTERISTIC(&ws_sensor_4_hum_char_uuid.uuid,
-                    BT_GATT_CHRC_READ,
-                    BT_GATT_PERM_READ,
-                    read_sensor_4_hum,
-                    NULL,
-                    &sensor_hum_values[3]),
-    BT_GATT_CPF(&hum_cpf),
-    BT_GATT_CUD(SENSOR_4_HUM_DESCRIPTION, BT_GATT_PERM_READ)
 );
+
+static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_data_request *request)
+{
+	int err;
+	uint8_t to_send;
+	struct net_buf_simple *buf;
+
+	to_send = MIN(request->count, ARRAY_SIZE(subevent_data_params));
+
+	for (size_t i = 0; i < to_send; i++) {
+		buf = &bufs[i];
+		buf->data[buf->len - 1] = current_pawr_command;
+
+		subevent_data_params[i].subevent =
+			(request->start + i) % per_adv_params.num_subevents;
+		subevent_data_params[i].response_slot_start = 0;
+		subevent_data_params[i].response_slot_count = NUM_RSP_SLOTS;
+		subevent_data_params[i].data = buf;
+	}
+
+	k_sleep(K_MSEC(10));
+
+	err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
+	if (err) {
+		printk("Failed to set subevent data (err %d)\n", err);
+	}
+}
+
+static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
+		     struct net_buf_simple *buf)
+{
+	if (buf) {
+        const struct sensor_value * sensor_val;
+
+        sensor_val = (const struct sensor_value *)&(buf->data[2]);
+
+		printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
+
+        // Print the sensor data
+        if (buf->data[1] == PAWR_CMD_REQUEST_TEMP)
+        {
+            int err;
+
+            printk("Received temperature data\n");
+            double temp_local = sensor_value_to_double(sensor_val);
+            sensor_temp_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(temp_local);  
+
+            printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[0], temp_local);
+
+            // Notify the connected device of the new temperature value [2, 4, 6]
+            if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[0]-1)], BT_GATT_CCC_NOTIFY))
+            {
+                err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[0]-1)], &sensor_temp_values[buf->data[0]-1], sizeof(uint32_t));
+                if (err) {
+                    printk("Failed to notify central (err %d)\n", err);
+                }
+            }
+        } else if (buf->data[1] == PAWR_CMD_REQUEST_HUMIDITY) {
+            int err;
+
+            printk("Received humidity data\n");
+            double hum_local = sensor_value_to_double(sensor_val);
+            sensor_hum_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(hum_local);
+
+            printk("\n---- SENSOR NODE #%d ----\n Humidity: %0.2f %%\n", (uint8_t)buf->data[0], sensor_value_to_double(sensor_val));
+
+            // Notify the connected device of the new humidity value [3, 5, 7]
+            if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[0]-1)], BT_GATT_CCC_NOTIFY))
+            {
+                err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[0]-1)], &sensor_hum_values[buf->data[0]-1], sizeof(uint32_t));
+                if (err) {
+                    printk("Failed to notify central (err %d)\n", err);
+                }
+            }
+        } else {
+            printk("Unknown data received\n");
+        }
+	} else {
+		printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
+		       info->response_slot);
+	}
+}
 
 #define MAX_SYNCS (NUM_SUBEVENTS * NUM_RSP_SLOTS)
 struct pawr_timing {
@@ -641,16 +660,16 @@ int main(void)
 		}
 
 		sync_config.subevent = num_synced % NUM_SUBEVENTS;
-		// sync_config.response_slot = num_synced / NUM_RSP_SLOTS;
-        sync_config.response_slot = 0;
-
+        sync_config.response_slot = NUM_RSP_SLOTS-1;
 
 		printk("NumSynced: %d --> PAST sent for subevent %d and response slot %d\n",
                 num_synced,
                 num_synced % NUM_SUBEVENTS,
-                num_synced / NUM_RSP_SLOTS);
+                0);
 
 		num_synced++;
+
+        k_msleep(4*(per_adv_params.interval_min));
 
 		write_params.func = write_func;
 		write_params.handle = pawr_attr_handle;
@@ -689,7 +708,7 @@ disconnect:
 		k_sem_take(&sem_disconnected,  K_SECONDS(30));
 	}
 
-	printk("Maximum numnber of syncs onboarded\n");
+	printk("Maximum number of syncs onboarded\n");
 
 	while (true) {
 		k_sleep(K_SECONDS(1));
