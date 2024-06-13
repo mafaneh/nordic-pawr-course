@@ -21,10 +21,15 @@
 static uint32_t sensor_temp_values[NUM_SENSORS] = {0};
 static uint32_t sensor_hum_values[NUM_SENSORS] = {0};
 
+// We will be assigning each sensor node a subevent and response slot
+// We will have a maximum of 3 sensor nodes
 #define NUM_RSP_SLOTS 1
 #define NUM_SUBEVENTS 3
 #define PACKET_SIZE   5
 #define NAME_LEN      30
+
+// initialize the currently connected device ID to 0xFF (Invalid)
+static uint8_t currently_connected_device_id = 0xFF;
 
 // Device Discovery Definitions
 #define NOVEL_BITS_COMPANY_ID 0x08D3
@@ -54,7 +59,7 @@ static const struct bt_le_per_adv_param per_adv_params = {
 	.num_response_slots = NUM_RSP_SLOTS,
 };
 
-#define DEVICE_NAME "WeatherStation"
+#define DEVICE_NAME "Weather_Station"
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME)-1)
 
 static const struct bt_data ad[] = {
@@ -94,8 +99,18 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
 
     printk("Connected (err 0x%02X)\n", err);
 
-    // Error case
-	if (err) {
+    // Success case
+	if (err == 0) {
+        if (conn != central_conn)
+        {
+            // Connected as a Peripheral
+            printk("Connected as a Peripheral\n");
+            peripheral_conn = bt_conn_ref(conn);
+        }
+	}
+    // Failure Case
+    else
+    {
         if (conn == central_conn) {
             bt_conn_unref(central_conn);
             central_conn = NULL;
@@ -104,17 +119,6 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
             bt_conn_unref(peripheral_conn);
             peripheral_conn = NULL;
         }
-	}
-    // Success Case
-    else
-    {
-        if (conn != central_conn)
-        {
-            // Connected as a Peripheral
-            printk("Connected as a Peripheral\n");
-            peripheral_conn = bt_conn_ref(conn);
-        }
-        
     }
 }
 
@@ -126,6 +130,7 @@ void disconnected_cb(struct bt_conn *conn, uint8_t reason)
         bt_conn_unref(central_conn);
         central_conn = NULL;
         k_sem_give(&sem_disconnected);
+        currently_connected_device_id = 0xFF;
     }
     else if (conn == peripheral_conn) {
         bt_conn_unref(peripheral_conn);
@@ -228,6 +233,8 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	if (err) {
 		printk("Create conn to %s failed (%u)\n", addr_str, err);
 	}
+
+    currently_connected_device_id = device_ad_data.data[2];
 }
 
 static uint8_t discover_func(struct bt_conn *conn, const struct bt_gatt_attr *attr,
@@ -535,8 +542,6 @@ struct pawr_timing {
 	uint8_t response_slot;
 } __packed;
 
-static uint8_t num_synced;
-
 #define USER_BUTTON DK_BTN1_MSK
 
 static void button_changed(uint32_t button_state, uint32_t has_changed)
@@ -620,7 +625,7 @@ int main(void)
 		return 0;
 	}
 
-	while (num_synced < MAX_SYNCS) {
+	while (1) {
 		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
 		if (err) {
 			printk("Scanning failed to start (err %d)\n", err);
@@ -659,15 +664,20 @@ int main(void)
 			goto disconnect;
 		}
 
-		sync_config.subevent = num_synced % NUM_SUBEVENTS;
-        sync_config.response_slot = NUM_RSP_SLOTS-1;
+        if (currently_connected_device_id == 0xFF) {
+            printk("No device ID found\n");
+            goto disconnect;
+        }
 
-		printk("NumSynced: %d --> PAST sent for subevent %d and response slot %d\n",
-                num_synced,
-                num_synced % NUM_SUBEVENTS,
-                0);
+        // Assign the subevent and response slot to the sync_config
+        // [Note: each node will be assigned a subevent based on their device ID. Response slot will be 0 for all nodes]
+		sync_config.subevent = currently_connected_device_id-1;
+        sync_config.response_slot = 0;
 
-		num_synced++;
+		printk("Device ID: %d --> PAST sent for subevent %d and response slot %d\n",
+                currently_connected_device_id,
+                sync_config.subevent,
+                sync_config.response_slot);
 
         k_msleep(4*(per_adv_params.interval_min));
 
@@ -680,7 +690,6 @@ int main(void)
 		err = bt_gatt_write(central_conn, &write_params);
 		if (err) {
 			printk("Write failed (err %d)\n", err);
-			num_synced--;
 
 			goto disconnect;
 		}
@@ -690,12 +699,11 @@ int main(void)
 		err = k_sem_take(&sem_written, K_SECONDS(10));
 		if (err) {
 			printk("Timed out during GATT write\n");
-			num_synced--;
 
 			goto disconnect;
 		}
 
-		printk("PAwR config written to sync %d, disconnecting\n", num_synced - 1);
+		printk("PAwR config written to device %d, disconnecting\n", currently_connected_device_id);
 
 disconnect:
 		err = bt_conn_disconnect(central_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
@@ -708,7 +716,7 @@ disconnect:
 		k_sem_take(&sem_disconnected,  K_SECONDS(30));
 	}
 
-	printk("Maximum number of syncs onboarded\n");
+	printk("SHOULD NEVER REACH HERE\n");
 
 	while (true) {
 		k_sleep(K_SECONDS(1));
