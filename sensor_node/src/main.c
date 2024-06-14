@@ -22,8 +22,10 @@ int main(void)
     // Initialize sensor interface
     sensor_capture_data();
 
+    // Initialize ePaper display
     epaper_display_init();
 
+    // Initialize BLE
     ble_init();
 
 	// Register callbacks for periodic adv sync
@@ -42,8 +44,8 @@ int main(void)
 			break;
 		}
 
-        // Only update sensor reading every 5 seconds
-        if (counter % 50 == 0)
+        // Only update sensor reading every 1 second
+        if (counter % 10 == 0)
         {
             // Capture sensor data
             sensor_capture_data();
@@ -58,6 +60,8 @@ int main(void)
 
         // Sleep for 100 msec
 		k_msleep(100);
+
+        // Increment counter
         counter++;
 	}
 

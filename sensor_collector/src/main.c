@@ -46,21 +46,22 @@ static K_SEM_DEFINE(sem_written, 0, 1);
 static K_SEM_DEFINE(sem_disconnected, 0, 1);
 
 static struct bt_uuid_128 pawr_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 static uint16_t pawr_attr_handle;
 static const struct bt_le_per_adv_param per_adv_params = {
-	.interval_min = 800,
-	.interval_max = 800,
-	.options = 0,
-	.num_subevents = NUM_SUBEVENTS,
-	.subevent_interval = 0x30,
-	.response_slot_delay = 0x5,
-	.response_slot_spacing = 0x50,
-	.num_response_slots = NUM_RSP_SLOTS,
+    .interval_min = 800,
+    .interval_max = 800,
+    .options = 0,
+    .num_subevents = NUM_SUBEVENTS,
+    .subevent_interval = 0x30,
+    .response_slot_delay = 0x5,
+    .response_slot_spacing = 0x50,
+    .num_response_slots = NUM_RSP_SLOTS,
 };
 
 #define DEVICE_NAME "Weather_Station"
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME)-1)
+#define RESPONSE_DATA_SIZE 9
 
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -87,11 +88,11 @@ static struct bt_conn *peripheral_conn;
 
 static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_data_request *request);
 static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
-		     struct net_buf_simple *buf);
+             struct net_buf_simple *buf);
 
 static const struct bt_le_ext_adv_cb adv_cb = {
-	.pawr_data_request = request_cb,
-	.pawr_response = response_cb,
+    .pawr_data_request = request_cb,
+    .pawr_response = response_cb,
 };
 
 void connected_cb(struct bt_conn *conn, uint8_t err)
@@ -100,14 +101,14 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
     printk("Connected (err 0x%02X)\n", err);
 
     // Success case
-	if (err == 0) {
+    if (err == 0) {
         if (conn != central_conn)
         {
             // Connected as a Peripheral
             printk("Connected as a Peripheral\n");
             peripheral_conn = bt_conn_ref(conn);
         }
-	}
+    }
     // Failure Case
     else
     {
@@ -124,7 +125,7 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
 
 void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02X)\n", reason);
+    printk("Disconnected (reason 0x%02X)\n", reason);
 
     if (conn == central_conn) {
         bt_conn_unref(central_conn);
@@ -140,17 +141,17 @@ void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 
 void remote_info_available_cb(struct bt_conn *conn, struct bt_conn_remote_info *remote_info)
 {
-	/* Need to wait for remote info before initiating PAST  -- only as a Central*/
+    /* Need to wait for remote info before initiating PAST  -- only as a Central*/
 
     if (conn == central_conn) {
-    	k_sem_give(&sem_connected);
+        k_sem_give(&sem_connected);
     }
 }
 
 BT_CONN_CB_DEFINE(conn_cb) = {
-	.connected = connected_cb,
-	.disconnected = disconnected_cb,
-	.remote_info_available = remote_info_available_cb,
+    .connected = connected_cb,
+    .disconnected = disconnected_cb,
+    .remote_info_available = remote_info_available_cb,
 };
 
 typedef struct adv_data
@@ -162,20 +163,20 @@ typedef struct adv_data
     bool novelbits_id_present;
     uint8_t data[30];
 
-} specific_adv_data_t;
+} custom_adv_data_t;
 
 static bool data_cb(struct bt_data *data, void *user_data)
 {
-	specific_adv_data_t *adv_data_struct = user_data;
-	uint8_t len;
+    custom_adv_data_t *adv_data_struct = user_data;
+    uint8_t len;
 
-	switch (data->type) {
-	case BT_DATA_NAME_SHORTENED:
-	case BT_DATA_NAME_COMPLETE:
-		len = MIN(data->data_len, NAME_LEN - 1);
-		memcpy(adv_data_struct->name, data->data, len);
-		adv_data_struct->name[len] = '\0';
-		return true;
+    switch (data->type) {
+    case BT_DATA_NAME_SHORTENED:
+    case BT_DATA_NAME_COMPLETE:
+        len = MIN(data->data_len, NAME_LEN - 1);
+        memcpy(adv_data_struct->name, data->data, len);
+        adv_data_struct->name[len] = '\0';
+        return true;
 
     case BT_DATA_MANUFACTURER_DATA:
         if (data->data_len < 3) {
@@ -192,30 +193,30 @@ static bool data_cb(struct bt_data *data, void *user_data)
         memcpy(adv_data_struct->data, &data->data[0], data->data_len);
 
         return false;
-	default:
-		return true;
-	}
+    default:
+        return true;
+    }
 }
 
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
-			 struct net_buf_simple *ad)
+             struct net_buf_simple *ad)
 {
-	char addr_str[BT_ADDR_LE_STR_LEN];
+    char addr_str[BT_ADDR_LE_STR_LEN];
 
-    specific_adv_data_t device_ad_data;
-	int err;
+    custom_adv_data_t device_ad_data;
+    int err;
 
-	if (central_conn) {
-		return;
-	}
+    if (central_conn) {
+        return;
+    }
 
-	/* We're only interested in connectable events */
-	if (type != BT_GAP_ADV_TYPE_ADV_IND && type != BT_GAP_ADV_TYPE_ADV_DIRECT_IND) {
-		return;
-	}
+    /* We're only interested in connectable events */
+    if (type != BT_GAP_ADV_TYPE_ADV_IND && type != BT_GAP_ADV_TYPE_ADV_DIRECT_IND) {
+        return;
+    }
 
-	(void)memset(&device_ad_data, 0, sizeof(device_ad_data));
-	bt_data_parse(ad, data_cb, &device_ad_data);
+    (void)memset(&device_ad_data, 0, sizeof(device_ad_data));
+    bt_data_parse(ad, data_cb, &device_ad_data);
 
     if (!device_ad_data.novelbits_id_present) {
         return;
@@ -224,69 +225,69 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
     printk("Device found: %s (RSSI %d)\n", device_ad_data.name, rssi);
     printk("Manufacturer specific data [Novel Bits]. ID = 0x%02X\n", device_ad_data.data[2]);
 
-	if (bt_le_scan_stop()) {
-		return;
-	}
+    if (bt_le_scan_stop()) {
+        return;
+    }
 
-	err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN, BT_LE_CONN_PARAM_DEFAULT,
-				&central_conn);
-	if (err) {
-		printk("Create conn to %s failed (%u)\n", addr_str, err);
-	}
+    err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN, BT_LE_CONN_PARAM_DEFAULT,
+                &central_conn);
+    if (err) {
+        printk("Create conn to %s failed (%u)\n", addr_str, err);
+    }
 
     currently_connected_device_id = device_ad_data.data[2];
 }
 
 static uint8_t discover_func(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			     struct bt_gatt_discover_params *params)
+                 struct bt_gatt_discover_params *params)
 {
-	struct bt_gatt_chrc *chrc;
-	char str[BT_UUID_STR_LEN];
+    struct bt_gatt_chrc *chrc;
+    char str[BT_UUID_STR_LEN];
 
-	printk("Discovery: attr %p\n", attr);
+    printk("Discovery: attr %p\n", attr);
 
-	if (!attr) {
-		return BT_GATT_ITER_STOP;
-	}
+    if (!attr) {
+        return BT_GATT_ITER_STOP;
+    }
 
-	chrc = (struct bt_gatt_chrc *)attr->user_data;
+    chrc = (struct bt_gatt_chrc *)attr->user_data;
 
-	bt_uuid_to_str(chrc->uuid, str, sizeof(str));
-	printk("UUID %s\n", str);
+    bt_uuid_to_str(chrc->uuid, str, sizeof(str));
+    printk("UUID %s\n", str);
 
-	if (!bt_uuid_cmp(chrc->uuid, &pawr_char_uuid.uuid)) {
-		pawr_attr_handle = chrc->value_handle;
+    if (!bt_uuid_cmp(chrc->uuid, &pawr_char_uuid.uuid)) {
+        pawr_attr_handle = chrc->value_handle;
 
-		printk("Characteristic handle: %d\n", pawr_attr_handle);
+        printk("Characteristic handle: %d\n", pawr_attr_handle);
 
-		k_sem_give(&sem_discovered);
-	}
+        k_sem_give(&sem_discovered);
+    }
 
-	return BT_GATT_ITER_STOP;
+    return BT_GATT_ITER_STOP;
 }
 
 static void write_func(struct bt_conn *conn, uint8_t err, struct bt_gatt_write_params *params)
 {
-	if (err) {
-		printk("Write failed (err %d)\n", err);
+    if (err) {
+        printk("Write failed (err %d)\n", err);
 
-		return;
-	}
+        return;
+    }
 
-	k_sem_give(&sem_written);
+    k_sem_give(&sem_written);
 }
 
 void init_bufs(void)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(backing_store); i++) {
-		backing_store[i][0] = ARRAY_SIZE(backing_store[i]) - 1;
-		backing_store[i][1] = BT_DATA_MANUFACTURER_DATA;
-		backing_store[i][2] = (NOVEL_BITS_COMPANY_ID & 0xFF); /* Novel Bits */
-		backing_store[i][3] = ((NOVEL_BITS_COMPANY_ID >> 8) & 0xFF);
+    for (size_t i = 0; i < ARRAY_SIZE(backing_store); i++) {
+        backing_store[i][0] = ARRAY_SIZE(backing_store[i]) - 1;
+        backing_store[i][1] = BT_DATA_MANUFACTURER_DATA;
+        backing_store[i][2] = (NOVEL_BITS_COMPANY_ID & 0xFF); /* Novel Bits */
+        backing_store[i][3] = ((NOVEL_BITS_COMPANY_ID >> 8) & 0xFF);
 
-		net_buf_simple_init_with_data(&bufs[i], &backing_store[i],
-					      ARRAY_SIZE(backing_store[i]));
-	}
+        net_buf_simple_init_with_data(&bufs[i], &backing_store[i],
+                          ARRAY_SIZE(backing_store[i]));
+    }
 }
 
 // GATT Definitions
@@ -336,41 +337,41 @@ static ssize_t read_sensor_3_hum(struct bt_conn *conn, const struct bt_gatt_attr
 
 // Format for the temperature characteristic
 static const struct bt_gatt_cpf temp_cpf = {
-	.format =  0x17, // IEEE-11073 32-bit SFLOAT
+    .format =  0x17, // IEEE-11073 32-bit SFLOAT
     .unit = 0x272F,  // Temperature degrees C
 };
 
 // Format for the humidity characteristic
 static const struct bt_gatt_cpf hum_cpf = {
-	.format =  0x17, // IEEE-11073 32-bit SFLOAT
+    .format =  0x17, // IEEE-11073 32-bit SFLOAT
     .unit = 0x27AD,  // Percentage
 };
 
 // Service UUID: 12345678-1234-5678-1234-56789abcdef2
 static struct bt_uuid_128 ws_service_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef2));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef2));
 
 // ----- Characteristic UUIDs -----
 // Sensor 1 Temperature: 12345678-1234-5678-1234-56789abcdef3
 static struct bt_uuid_128 ws_sensor_1_temp_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef3));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef3));
 // Sensor 1 Humidity: 12345678-1234-5678-1234-56789abcdef4
 static struct bt_uuid_128 ws_sensor_1_hum_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef4));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef4));
 
 // Sensor 2 Temperature: 12345678-1234-5678-1234-56789abcdef5
 static struct bt_uuid_128 ws_sensor_2_temp_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef5));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef5));
 // Sensor 2 Humidity: 12345678-1234-5678-1234-56789abcdef6
 static struct bt_uuid_128 ws_sensor_2_hum_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef6));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef6));
 
 // Sensor 3 Temperature: 12345678-1234-5678-1234-56789abcdef7
 static struct bt_uuid_128 ws_sensor_3_temp_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef7));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef7));
 // Sensor 3 Humidity: 12345678-1234-5678-1234-56789abcdef8
 static struct bt_uuid_128 ws_sensor_3_hum_char_uuid =
-	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef8));
+    BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef8));
 
 // Offset between each CCC descriptor for temperature and humidity characteristics
 #define CCC_OFFSET 8
@@ -456,98 +457,106 @@ BT_GATT_SERVICE_DEFINE(
 
 static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_data_request *request)
 {
-	int err;
-	uint8_t to_send;
-	struct net_buf_simple *buf;
+    int err;
+    uint8_t to_send;
+    struct net_buf_simple *buf;
 
-	to_send = MIN(request->count, ARRAY_SIZE(subevent_data_params));
+    to_send = MIN(request->count, ARRAY_SIZE(subevent_data_params));
 
-	for (size_t i = 0; i < to_send; i++) {
-		buf = &bufs[i];
-		buf->data[buf->len - 1] = current_pawr_command;
+    for (size_t i = 0; i < to_send; i++) {
+        buf = &bufs[i];
+        buf->data[buf->len - 1] = current_pawr_command;
 
-		subevent_data_params[i].subevent =
-			(request->start + i) % per_adv_params.num_subevents;
-		subevent_data_params[i].response_slot_start = 0;
-		subevent_data_params[i].response_slot_count = NUM_RSP_SLOTS;
-		subevent_data_params[i].data = buf;
-	}
+        subevent_data_params[i].subevent =
+            (request->start + i) % per_adv_params.num_subevents;
+        subevent_data_params[i].response_slot_start = 0;
+        subevent_data_params[i].response_slot_count = NUM_RSP_SLOTS;
+        subevent_data_params[i].data = buf;
+    }
 
-	k_sleep(K_MSEC(10));
+    k_sleep(K_MSEC(10));
 
-	err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
-	if (err) {
-		printk("Failed to set subevent data (err %d)\n", err);
-	}
+    err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
+    if (err) {
+        printk("Failed to set subevent data (err %d)\n", err);
+    }
 }
 
 static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
-		     struct net_buf_simple *buf)
+             struct net_buf_simple *buf)
 {
-	if (buf) {
+    if (buf) {
         const struct sensor_value * sensor_val;
 
-        sensor_val = (const struct sensor_value *)&(buf->data[2]);
-
-		printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
+        printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
 
         // Print the sensor data
-        if (buf->data[1] == PAWR_CMD_REQUEST_TEMP)
+        if ( (buf->data[0] == RESPONSE_DATA_SIZE) 
+            && buf->data[1] == 0xFF
+            && (buf->data[2] == (NOVEL_BITS_COMPANY_ID & 0xFF)) && (buf->data[3] == (NOVEL_BITS_COMPANY_ID >> 8)))
         {
-            int err;
+            sensor_val = (const struct sensor_value *)&(buf->data[6]);
 
-            printk("Received temperature data\n");
-            double temp_local = sensor_value_to_double(sensor_val);
-            sensor_temp_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(temp_local);  
-
-            printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[0], temp_local);
-
-            // Notify the connected device of the new temperature value [2, 4, 6]
-            if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[0]-1)], BT_GATT_CCC_NOTIFY))
+            if (buf->data[5] == PAWR_CMD_REQUEST_TEMP)
             {
-                err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[0]-1)], &sensor_temp_values[buf->data[0]-1], sizeof(uint32_t));
-                if (err) {
-                    printk("Failed to notify central (err %d)\n", err);
+                int err;
+
+                printk("Received temperature data\n");
+                double temp_local = sensor_value_to_double(sensor_val);
+                sensor_temp_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(temp_local);  
+
+                printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[4], temp_local);
+
+                // Notify the connected device of the new temperature value
+                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
+                {
+                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], &sensor_temp_values[buf->data[4]-1], sizeof(uint32_t));
+                    if (err) {
+                        printk("Failed to notify central (err %d)\n", err);
+                    }
                 }
-            }
-        } else if (buf->data[1] == PAWR_CMD_REQUEST_HUMIDITY) {
-            int err;
+            } else if (buf->data[5] == PAWR_CMD_REQUEST_HUMIDITY) {
+                int err;
 
-            printk("Received humidity data\n");
-            double hum_local = sensor_value_to_double(sensor_val);
-            sensor_hum_values[(uint8_t)buf->data[0]-1] = quick_ieee11073_from_float(hum_local);
+                printk("Received humidity data\n");
+                double hum_local = sensor_value_to_double(sensor_val);
+                sensor_hum_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(hum_local);
 
-            printk("\n---- SENSOR NODE #%d ----\n Humidity: %0.2f %%\n", (uint8_t)buf->data[0], sensor_value_to_double(sensor_val));
+                printk("\n---- SENSOR NODE #%d ----\n Humidity: %0.2f %%\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
 
-            // Notify the connected device of the new humidity value [3, 5, 7]
-            if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[0]-1)], BT_GATT_CCC_NOTIFY))
-            {
-                err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[0]-1)], &sensor_hum_values[buf->data[0]-1], sizeof(uint32_t));
-                if (err) {
-                    printk("Failed to notify central (err %d)\n", err);
+                // Notify the connected device of the new humidity value
+                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
+                {
+                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[4]-1)], &sensor_hum_values[buf->data[4]-1], sizeof(uint32_t));
+                    if (err) {
+                        printk("Failed to notify central (err %d)\n", err);
+                    }
                 }
+            } else {
+                printk("Unknown request type received\n");
             }
-        } else {
-            printk("Unknown data received\n");
         }
-	} else {
-		printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
-		       info->response_slot);
-	}
+        else {
+            printk("Invalid data format received\n");
+        }
+    } else {
+        printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
+               info->response_slot);
+    }
 }
 
 #define MAX_SYNCS (NUM_SUBEVENTS * NUM_RSP_SLOTS)
 struct pawr_timing {
-	uint8_t subevent;
-	uint8_t response_slot;
+    uint8_t subevent;
+    uint8_t response_slot;
 } __packed;
 
 #define USER_BUTTON DK_BTN1_MSK
 
 static void button_changed(uint32_t button_state, uint32_t has_changed)
 {
-	if (has_changed & USER_BUTTON) {
-		uint32_t user_button_state = button_state & USER_BUTTON;
+    if (has_changed & USER_BUTTON) {
+        uint32_t user_button_state = button_state & USER_BUTTON;
 
         if (user_button_state) {
             printk("Button pressed - changing to %s request\n", current_pawr_command == PAWR_CMD_REQUEST_TEMP ? "humidity" : "temperature");
@@ -555,40 +564,40 @@ static void button_changed(uint32_t button_state, uint32_t has_changed)
             // Toggle the command between requesting temperature and humidity
             current_pawr_command = (current_pawr_command == PAWR_CMD_REQUEST_TEMP) ? PAWR_CMD_REQUEST_HUMIDITY : PAWR_CMD_REQUEST_TEMP;
         }
-	}
+    }
 }
 
 static int init_button(void)
 {
-	int err;
+    int err;
 
-	err = dk_buttons_init(button_changed);
-	if (err) {
-		printk("Cannot init buttons (err: %d)\n", err);
-	}
+    err = dk_buttons_init(button_changed);
+    if (err) {
+        printk("Cannot init buttons (err: %d)\n", err);
+    }
 
-	return err;
+    return err;
 }
 
 int main(void)
 {
-	int err;
-	struct bt_le_ext_adv *pawr_adv;
-	struct bt_gatt_discover_params discover_params;
-	struct bt_gatt_write_params write_params;
-	struct pawr_timing sync_config;
+    int err;
+    struct bt_le_ext_adv *pawr_adv;
+    struct bt_gatt_discover_params discover_params;
+    struct bt_gatt_write_params write_params;
+    struct pawr_timing sync_config;
 
-	init_bufs();
+    init_bufs();
     init_button();
 
-	printk("Starting Periodic Advertising Demo\n");
+    printk("Starting Periodic Advertising Demo\n");
 
-	/* Initialize the Bluetooth Subsystem */
-	err = bt_enable(NULL);
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return 0;
-	}
+    /* Initialize the Bluetooth Subsystem */
+    err = bt_enable(NULL);
+    if (err) {
+        printk("Bluetooth init failed (err %d)\n", err);
+        return 0;
+    }
 
     err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
     if (err && err != -EALREADY) {
@@ -597,130 +606,131 @@ int main(void)
         return 0;
     }
 
-	/* Create a non-connectable non-scannable advertising set */
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN, &adv_cb, &pawr_adv);
-	if (err) {
-		printk("Failed to create advertising set (err %d)\n", err);
-		return 0;
-	}
+    /* Create a non-connectable non-scannable advertising set */
+    err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN, &adv_cb, &pawr_adv);
+    if (err) {
+        printk("Failed to create advertising set (err %d)\n", err);
+        return 0;
+    }
 
-	/* Set periodic advertising parameters */
-	err = bt_le_per_adv_set_param(pawr_adv, &per_adv_params);
-	if (err) {
-		printk("Failed to set periodic advertising parameters (err %d)\n", err);
-		return 0;
-	}
+    /* Set periodic advertising parameters */
+    err = bt_le_per_adv_set_param(pawr_adv, &per_adv_params);
+    if (err) {
+        printk("Failed to set periodic advertising parameters (err %d)\n", err);
+        return 0;
+    }
 
-	/* Enable Periodic Advertising */
-	err = bt_le_per_adv_start(pawr_adv);
-	if (err) {
-		printk("Failed to enable periodic advertising (err %d)\n", err);
-		return 0;
-	}
+    /* Enable Periodic Advertising */
+    err = bt_le_per_adv_start(pawr_adv);
+    if (err) {
+        printk("Failed to enable periodic advertising (err %d)\n", err);
+        return 0;
+    }
 
-	printk("Start Periodic Advertising\n");
-	err = bt_le_ext_adv_start(pawr_adv, BT_LE_EXT_ADV_START_DEFAULT);
-	if (err) {
-		printk("Failed to start extended advertising (err %d)\n", err);
-		return 0;
-	}
+    printk("Start Periodic Advertising\n");
+    err = bt_le_ext_adv_start(pawr_adv, BT_LE_EXT_ADV_START_DEFAULT);
+    if (err) {
+        printk("Failed to start extended advertising (err %d)\n", err);
+        return 0;
+    }
 
-	while (1) {
-		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
-		if (err) {
-			printk("Scanning failed to start (err %d)\n", err);
-			return 0;
-		}
+    while (1) {
+        err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
+        if (err) {
+            printk("Scanning failed to start (err %d)\n", err);
+            return 0;
+        }
 
-		printk("Scanning successfully started\n");
+        printk("Scanning successfully started\n");
 
-		k_sem_take(&sem_connected, K_FOREVER);
+        k_sem_take(&sem_connected, K_FOREVER);
 
-		err = bt_le_per_adv_set_info_transfer(pawr_adv, central_conn, 0);
-		if (err) {
-			printk("Failed to send PAST (err %d)\n", err);
+        err = bt_le_per_adv_set_info_transfer(pawr_adv, central_conn, 0);
+        if (err) {
+            printk("Failed to send PAST (err %d)\n", err);
 
-			goto disconnect;
-		}
+            goto disconnect;
+        }
 
-		discover_params.uuid = &pawr_char_uuid.uuid;
-		discover_params.func = discover_func;
-		discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
-		discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
-		err = bt_gatt_discover(central_conn, &discover_params);
-		if (err) {
-			printk("Discovery failed (err %d)\n", err);
+        discover_params.uuid = &pawr_char_uuid.uuid;
+        discover_params.func = discover_func;
+        discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
+        discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+        discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+        err = bt_gatt_discover(central_conn, &discover_params);
+        if (err) {
+            printk("Discovery failed (err %d)\n", err);
 
-			goto disconnect;
-		}
+            goto disconnect;
+        }
 
-		printk("Discovery started\n");
+        printk("Discovery started\n");
 
-		err = k_sem_take(&sem_discovered, K_SECONDS(10));
-		if (err) {
-			printk("Timed out during GATT discovery\n");
+        err = k_sem_take(&sem_discovered, K_SECONDS(10));
+        if (err) {
+            printk("Timed out during GATT discovery\n");
 
-			goto disconnect;
-		}
+            goto disconnect;
+        }
 
         if (currently_connected_device_id == 0xFF) {
             printk("No device ID found\n");
             goto disconnect;
         }
 
-        // Assign the subevent and response slot to the sync_config
-        // [Note: each node will be assigned a subevent based on their device ID. Response slot will be 0 for all nodes]
-		sync_config.subevent = currently_connected_device_id-1;
-        sync_config.response_slot = 0;
-
-		printk("Device ID: %d --> PAST sent for subevent %d and response slot %d\n",
+        printk("Device ID: %d --> PAST sent for subevent %d and response slot %d\n",
                 currently_connected_device_id,
                 sync_config.subevent,
                 sync_config.response_slot);
 
-        k_msleep(4*(per_adv_params.interval_min));
+        // Give the device time to process the PAST and sync before writing the PAwR config
+        k_msleep(2*per_adv_params.interval_min);        
 
-		write_params.func = write_func;
-		write_params.handle = pawr_attr_handle;
-		write_params.offset = 0;
-		write_params.data = &sync_config;
-		write_params.length = sizeof(sync_config);
+        // Assign the subevent and response slot to the sync_config
+        // [Note: each node will be assigned a subevent based on their device ID. Response slot will be 0 for all nodes]
+        sync_config.subevent = currently_connected_device_id-1;
+        sync_config.response_slot = 0;
 
-		err = bt_gatt_write(central_conn, &write_params);
-		if (err) {
-			printk("Write failed (err %d)\n", err);
+        write_params.func = write_func;
+        write_params.handle = pawr_attr_handle;
+        write_params.offset = 0;
+        write_params.data = &sync_config;
+        write_params.length = sizeof(sync_config);
 
-			goto disconnect;
-		}
+        err = bt_gatt_write(central_conn, &write_params);
+        if (err) {
+            printk("Write failed (err %d)\n", err);
 
-		printk("Write started\n");
+            goto disconnect;
+        }
 
-		err = k_sem_take(&sem_written, K_SECONDS(10));
-		if (err) {
-			printk("Timed out during GATT write\n");
+        printk("Write started\n");
 
-			goto disconnect;
-		}
+        err = k_sem_take(&sem_written, K_SECONDS(10));
+        if (err) {
+            printk("Timed out during GATT write\n");
 
-		printk("PAwR config written to device %d, disconnecting\n", currently_connected_device_id);
+            goto disconnect;
+        }
+
+        printk("PAwR config written to device %d, disconnecting\n", currently_connected_device_id);
 
 disconnect:
-		err = bt_conn_disconnect(central_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-		if (err) {
-			return 0;
-		}
+        err = bt_conn_disconnect(central_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+        if (err) {
+            return 0;
+        }
 
         printk("Disconnected\n");
 
-		k_sem_take(&sem_disconnected,  K_SECONDS(30));
-	}
+        k_sem_take(&sem_disconnected,  K_SECONDS(30));
+    }
 
-	printk("SHOULD NEVER REACH HERE\n");
+    printk("SHOULD NEVER REACH HERE\n");
 
-	while (true) {
-		k_sleep(K_SECONDS(1));
-	}
+    while (true) {
+        k_sleep(K_SECONDS(1));
+    }
 
-	return 0;
+    return 0;
 }
