@@ -5,38 +5,48 @@
 #include <zephyr/sys/util.h>
 
 #include "device_id.h"
-#include "sensor_node_sm.h"
 #include "ble_interface.h"
+#include "sensor_node_sm.h"
 #include "sensor_interface.h"
 
 extern sensor_data_t sensor_data;
 
-// PAwR Definitions
+// PAwR Request Type Definitions
 #define PAWR_CMD_REQUEST_TEMP 0x01
 #define PAWR_CMD_REQUEST_HUMIDITY 0x02
 
 static struct bt_conn *default_conn;
-static struct bt_le_per_adv_sync *default_sync = NULL;
+static struct bt_le_per_adv_sync_transfer_param past_param;
+static struct bt_le_per_adv_sync *default_sync;
+
+static void sync_cb(struct bt_le_per_adv_sync *sync, struct bt_le_per_adv_sync_synced_info *info);
+static void term_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_term_info *info);
+static void recv_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_recv_info *info,
+                    struct net_buf_simple *buf);
+
+static struct bt_le_per_adv_sync_cb sync_callbacks = {
+    .synced = sync_cb,
+    .term = term_cb,
+    .recv = recv_cb,
+};
 
 static struct __packed {
     uint8_t subevent;
     uint8_t response_slot;
 } pawr_timing;
 
-static struct bt_le_per_adv_sync_transfer_param past_param;
+// 13 bytes: 1 byte for length, 1 byte for type, 2 bytes for company ID, 1 byte for device ID, 1 byte for command, 8 bytes for sensor value
+#define RESPONSE_DATA_SIZE 13
 
-static void sync_cb(struct bt_le_per_adv_sync *sync, struct bt_le_per_adv_sync_synced_info *info);
-static void term_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_term_info *info);
-static void recv_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_recv_info *info,
-                    struct net_buf_simple *buf);
-static void state_changed_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_state_info *info);
-
-static struct bt_le_per_adv_sync_cb sync_callbacks = {
-    .synced = sync_cb,
-    .term = term_cb,
-    .recv = recv_cb,
-    .state_changed = state_changed_cb,
-};
+// Response data format
+struct response_data {
+    uint8_t len;
+    uint8_t type;
+    uint16_t company_id;
+    uint8_t device_id;
+    uint8_t command;
+    struct sensor_value sensor_reading;
+} __packed;
 
 // Company ID for Novel Bits (used for the manufacturer data)
 #define NOVEL_BITS_COMPANY_ID 0x08D3
@@ -49,22 +59,6 @@ static const struct bt_data ad[] = {
                   ((NOVEL_BITS_COMPANY_ID >> 8) & 0xFF),
                   DEVICE_ID)
 };
-
-// 9 bytes: 1 byte for length, 1 byte for type, 2 bytes for company ID, 1 byte for device ID, 1 byte for command, 4 bytes for sensor value
-#define RESPONSE_DATA_SIZE 9 
-
-// Response data format
-struct response_data {
-    uint8_t len;
-    uint8_t type;
-    uint16_t company_id;
-    uint8_t device_id;
-    uint8_t command;
-    union {
-        struct sensor_value temp;
-        struct sensor_value humidity;
-    };
-} __packed;
 
 void ble_start_advertising(void)
 {
@@ -99,7 +93,7 @@ static void sync_cb(struct bt_le_per_adv_sync *sync, struct bt_le_per_adv_sync_s
     printk("Setting subevent to sync to: %d\n", pawr_timing.subevent);
     printk("Setting response slot to: %d\n", pawr_timing.response_slot);
 
-    err = bt_le_per_adv_sync_subevent(default_sync, &params);
+    err = bt_le_per_adv_sync_subevent(sync, &params);
     if (err) {
         printk("Failed to set subevents to sync to (err %d)\n", err);
     }    
@@ -120,7 +114,7 @@ static void term_cb(struct bt_le_per_adv_sync *sync,
     sensor_node_sm_set_state(NotSynced);
 }
 
-static bool print_ad_field(struct bt_data *data, void *user_data)
+static bool parse_ad_field(struct bt_data *data, void *user_data)
 {
     uint8_t *request_command = ((uint8_t *)user_data);
 
@@ -135,7 +129,7 @@ static bool print_ad_field(struct bt_data *data, void *user_data)
         }
     }
     return true;
- }
+}
 
 // Function to set response data
 int bt_le_per_adv_set_response_data(struct bt_le_per_adv_sync *per_adv_sync,
@@ -146,13 +140,7 @@ int bt_le_per_adv_set_response_data(struct bt_le_per_adv_sync *per_adv_sync,
 static struct bt_le_per_adv_response_params rsp_params;
 
 // Response buffer
-NET_BUF_SIMPLE_DEFINE_STATIC(rsp_buf, 10);
-
-// Function to handle state changes
-static void state_changed_cb(struct bt_le_per_adv_sync *sync, const struct bt_le_per_adv_sync_state_info *info)
-{
-    printk("Recv enabled: %d\n", info->recv_enabled);
-}
+NET_BUF_SIMPLE_DEFINE_STATIC(rsp_buf, RESPONSE_DATA_SIZE+1);
 
 static void recv_cb(struct bt_le_per_adv_sync *sync,
             const struct bt_le_per_adv_sync_recv_info *info, struct net_buf_simple *buf)
@@ -184,7 +172,7 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
 
         printk("Indication: subevent %d, responding in slot %d\n", info->subevent,
                pawr_timing.response_slot);
-        bt_data_parse(buf, print_ad_field, &request_command);
+        bt_data_parse(buf, parse_ad_field, &request_command);
 
         // Send back temperature or humidity data based on the request type
         net_buf_simple_reset(&rsp_buf);
@@ -201,12 +189,12 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
         if (request_command == PAWR_CMD_REQUEST_TEMP)
         {
             printk("Received request for temperature data.\n\tResponding with Temperature = %.2f °C\n", sensor_value_to_double(&sensor_data.temp));
-            rsp_data.temp = sensor_data.temp;
+            rsp_data.sensor_reading = sensor_data.temp;
         }
         else if (request_command == PAWR_CMD_REQUEST_HUMIDITY)
         {
             printk("Received request for humidity data.\n\tResponding with Humidity = %0.2f %%\n", sensor_value_to_double(&sensor_data.humidity));
-            rsp_data.humidity = sensor_data.humidity;
+            rsp_data.sensor_reading = sensor_data.humidity;
         }
         else
         {

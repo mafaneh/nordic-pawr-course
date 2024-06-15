@@ -28,21 +28,21 @@ int main(void)
     // Initialize BLE
     ble_init();
 
-	// Register callbacks for periodic adv sync
-	ble_register_periodic_adv_sync_callbacks();
+    // Register callbacks for periodic adv sync
+    ble_register_periodic_adv_sync_callbacks();
 
-	// Initialize State Machine
+    // Initialize State Machine
     sensor_node_sm_init();
 
-	while (1) {
+    do {
 
         // Run the state machine
-		if (sensor_node_sm_run())
+        if (sensor_node_sm_run())
         {
-			/* handle return code and terminate state machine */
-			printk("Error running state machine\n");
-			break;
-		}
+            /* handle return code and terminate state machine */
+            printk("Error running state machine\n");
+            break;
+        }
 
         // Only update sensor reading every 1 second
         if (counter % 10 == 0)
@@ -59,11 +59,11 @@ int main(void)
         }
 
         // Sleep for 100 msec
-		k_msleep(100);
+        k_msleep(100);
 
         // Increment counter
         counter++;
-	}
+    } while (true);
 
-	return 0;
+    return 0;
 }

@@ -4,35 +4,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/sys/byteorder.h>
-
+#include <zephyr/sys/byteorder.h> // Needed for handling Little Endian data
 #include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
-
 #include <zephyr/drivers/sensor.h>
-
 #include <dk_buttons_and_leds.h>
 
-#define NUM_SENSORS 4
+#define NUM_SENSORS 3
 
 // Sensor variables
 static uint32_t sensor_temp_values[NUM_SENSORS] = {0};
 static uint32_t sensor_hum_values[NUM_SENSORS] = {0};
 
+// 13 bytes: 1 byte for length, 1 byte for type, 2 bytes for company ID, 1 byte for device ID, 1 byte for command, 8 bytes for sensor value
+#define RESPONSE_DATA_SIZE 13
+
 // We will be assigning each sensor node a subevent and response slot
 // We will have a maximum of 3 sensor nodes
 #define NUM_RSP_SLOTS 1
-#define NUM_SUBEVENTS 3
+#define NUM_SUBEVENTS NUM_SENSORS
 #define PACKET_SIZE   5
 #define NAME_LEN      30
 
-// initialize the currently connected device ID to 0xFF (Invalid)
-static uint8_t currently_connected_device_id = 0xFF;
-
 // Device Discovery Definitions
 #define NOVEL_BITS_COMPANY_ID 0x08D3
+
+typedef struct adv_data
+{
+    // Device Name
+    char name[NAME_LEN];
+
+    /* data */
+    bool novelbits_id_present;
+    uint8_t data[30];
+
+} custom_adv_data_t;
+
+// Initialize the currently connected device ID to 0xFF (Invalid ID)
+static uint8_t currently_connected_device_id = 0xFF;
 
 // PAwR Definitions
 #define PAWR_CMD_REQUEST_TEMP 0x01
@@ -49,19 +60,18 @@ static struct bt_uuid_128 pawr_char_uuid =
     BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 static uint16_t pawr_attr_handle;
 static const struct bt_le_per_adv_param per_adv_params = {
-    .interval_min = 800,
-    .interval_max = 800,
-    .options = 0,
-    .num_subevents = NUM_SUBEVENTS,
-    .subevent_interval = 0x30,
-    .response_slot_delay = 0x5,
-    .response_slot_spacing = 0x50,
-    .num_response_slots = NUM_RSP_SLOTS,
+    .interval_min = 0xFF, // 318.75 ms
+    .interval_max = 0xFF, // 318.75 ms
+    .options = 0, // No options
+    .num_subevents = NUM_SUBEVENTS, // 3
+    .subevent_interval = 0x50, // 100 ms
+    .response_slot_delay = 0x5, // 6.25 ms
+    .response_slot_spacing = 0xFA, // 31.25 ms
+    .num_response_slots = NUM_RSP_SLOTS, // 1
 };
 
 #define DEVICE_NAME "Weather_Station"
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME)-1)
-#define RESPONSE_DATA_SIZE 9
 
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -154,17 +164,6 @@ BT_CONN_CB_DEFINE(conn_cb) = {
     .remote_info_available = remote_info_available_cb,
 };
 
-typedef struct adv_data
-{
-    // Device Name
-    char name[NAME_LEN];
-
-    /* data */
-    bool novelbits_id_present;
-    uint8_t data[30];
-
-} custom_adv_data_t;
-
 static bool data_cb(struct bt_data *data, void *user_data)
 {
     custom_adv_data_t *adv_data_struct = user_data;
@@ -201,10 +200,9 @@ static bool data_cb(struct bt_data *data, void *user_data)
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
              struct net_buf_simple *ad)
 {
-    char addr_str[BT_ADDR_LE_STR_LEN];
-
-    custom_adv_data_t device_ad_data;
     int err;
+    char addr_str[BT_ADDR_LE_STR_LEN];
+    custom_adv_data_t device_ad_data;
 
     if (central_conn) {
         return;
@@ -224,6 +222,12 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 
     printk("Device found: %s (RSSI %d)\n", device_ad_data.name, rssi);
     printk("Manufacturer specific data [Novel Bits]. ID = 0x%02X\n", device_ad_data.data[2]);
+
+    if (device_ad_data.data[2] > NUM_SENSORS)
+    {
+        printk("Invalid device ID\n");
+        return;
+    }
 
     if (bt_le_scan_stop()) {
         return;
@@ -329,11 +333,6 @@ static ssize_t read_sensor_3_hum(struct bt_conn *conn, const struct bt_gatt_attr
 {
     return bt_gatt_attr_read(conn, attr, buf, len, offset, &sensor_hum_values[2], sizeof(uint32_t));
 }
-
-// static void sensor_1_temp_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
-// {
-//     printk("Sensor 1 Temperature Notification: %s\n", value == BT_GATT_CCC_NOTIFY ? "enabled" : "disabled");
-// }
 
 // Format for the temperature characteristic
 static const struct bt_gatt_cpf temp_cpf = {
@@ -474,7 +473,7 @@ static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_dat
         subevent_data_params[i].data = buf;
     }
 
-    k_sleep(K_MSEC(10));
+    // k_sleep(K_MSEC(10));
 
     err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
     if (err) {
@@ -488,10 +487,11 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
     if (buf) {
         const struct sensor_value * sensor_val;
 
-        printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
+        printk("Response: subevent %d, slot %d, data length %d\n", info->subevent, info->response_slot, buf->len);
 
-        // Print the sensor data
-        if ( (buf->data[0] == RESPONSE_DATA_SIZE) 
+        // Validate the data received
+        if ((buf->len == RESPONSE_DATA_SIZE+1)
+            && (buf->data[0] == RESPONSE_DATA_SIZE) 
             && buf->data[1] == 0xFF
             && (buf->data[2] == (NOVEL_BITS_COMPANY_ID & 0xFF)) && (buf->data[3] == (NOVEL_BITS_COMPANY_ID >> 8)))
         {
@@ -505,7 +505,7 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
                 double temp_local = sensor_value_to_double(sensor_val);
                 sensor_temp_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(temp_local);  
 
-                printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[4], temp_local);
+                printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
 
                 // Notify the connected device of the new temperature value
                 if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
@@ -545,7 +545,6 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
     }
 }
 
-#define MAX_SYNCS (NUM_SUBEVENTS * NUM_RSP_SLOTS)
 struct pawr_timing {
     uint8_t subevent;
     uint8_t response_slot;
@@ -635,6 +634,7 @@ int main(void)
     }
 
     while (1) {
+        // Continuously scan for devices
         err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
         if (err) {
             printk("Scanning failed to start (err %d)\n", err);
