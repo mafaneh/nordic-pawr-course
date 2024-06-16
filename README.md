@@ -1,4 +1,4 @@
-# Large-Scale Low-Power Weather Station System
+# Ultra-Low Power Scalable Weather Station
 
 Hardware components used:
 - nRF52840 DK
