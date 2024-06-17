@@ -487,7 +487,7 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
     if (buf) {
         const struct sensor_value * sensor_val;
 
-        printk("Response: subevent %d, slot %d, data length %d\n", info->subevent, info->response_slot, buf->len);
+        printk("\n\nReceived Response in Subevent #%d, Response Slot #%d [Data length = %d bytes]\n", info->subevent, info->response_slot, buf->len);
 
         // Validate the data received
         if ((buf->len == RESPONSE_DATA_SIZE+1)
@@ -501,11 +501,11 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
             {
                 int err;
 
-                printk("Received temperature data\n");
+                printk("\tSensor Data Type: Temperature Reading\n");
                 double temp_local = sensor_value_to_double(sensor_val);
                 sensor_temp_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(temp_local);  
 
-                printk("\n---- SENSOR NODE #%d ----\n Temperature: %.2f °C\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tTemperature: %.2f °C\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
 
                 // Notify the connected device of the new temperature value
                 if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
@@ -518,11 +518,11 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
             } else if (buf->data[5] == PAWR_CMD_REQUEST_HUMIDITY) {
                 int err;
 
-                printk("Received humidity data\n");
+                printk("\tSensor Data Type: Relative Humidity Reading\n");
                 double hum_local = sensor_value_to_double(sensor_val);
                 sensor_hum_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(hum_local);
 
-                printk("\n---- SENSOR NODE #%d ----\n Humidity: %0.2f %%\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tHumidity: %0.2f %%\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
 
                 // Notify the connected device of the new humidity value
                 if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
