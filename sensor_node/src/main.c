@@ -72,7 +72,7 @@ int main(void)
             epaper_display_update_sensor_data();
         }
 
-        // Sleep for 100 msec
+        // Sleep for X msec (depends on device mode and settings at top of file)
         k_msleep(LOOP_DELAY);
 
         // Increment counter
