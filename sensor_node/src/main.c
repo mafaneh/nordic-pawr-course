@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2024 Novel Bits, LLC
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: MIT License
  */
 
 #include "app/device_id.h"
