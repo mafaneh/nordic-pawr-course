@@ -10,6 +10,20 @@
 #include "app/ble_interface.h"
 #include "app/epaper_display.h"
 
+// UNCOMMENT to enable low power mode
+// #define LOW_POWER_MODE
+
+// Define delays for Low Power Mode and Regular Mode
+#ifdef LOW_POWER_MODE
+#define LOOP_DELAY 10000 // 10 seconds in Low Power Mode
+#define SENSOR_UDPATE_DELAY 10000 // 10 seconds in Low Power Mode
+#define DISPLAY_UPDATE_DELAY 36000 // 1 hour in Low Power Mode
+#else
+#define LOOP_DELAY 100 // 100 msec in Regular Mode
+#define SENSOR_UDPATE_DELAY 1000 // 1 second in Regular Mode
+#define DISPLAY_UPDATE_DELAY 10000 // 10 seconds in Regular Mode
+#endif
+
 // Sensor data
 extern sensor_data_t sensor_data;
 
@@ -44,22 +58,22 @@ int main(void)
             break;
         }
 
-        // Only update sensor reading every 1 second
-        if (counter % 10 == 0)
+        // Only update sensor reading every N msec (depends on settings at top of file)
+        if (counter % (SENSOR_UDPATE_DELAY/LOOP_DELAY) == 0)
         {
             // Capture sensor data
             sensor_capture_data();
         }
 
-        // Only update sensor reading and display every 30 seconds
-        if (counter % 300 == 0)
+        // Only update display every M msec (depends on settings at top of file)
+        if (counter % (DISPLAY_UPDATE_DELAY/LOOP_DELAY) == 0)
         {
             // Update display with sensor data
             epaper_display_update_sensor_data();
         }
 
         // Sleep for 100 msec
-        k_msleep(100);
+        k_msleep(LOOP_DELAY);
 
         // Increment counter
         counter++;

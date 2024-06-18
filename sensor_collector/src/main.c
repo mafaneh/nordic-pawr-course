@@ -12,6 +12,17 @@
 #include <zephyr/drivers/sensor.h>
 #include <dk_buttons_and_leds.h>
 
+// UNCOMMENT for low power mode
+//#define LOW_POWER_MODE
+
+#ifdef LOW_POWER_MODE
+#define PA_INTERVAL 0x320 // 1 second
+#define SUBEVENT_INTERVAL 0xF0 // 300 ms  
+#else
+#define PA_INTERVAL 0xFF // 318.75 ms
+#define SUBEVENT_INTERVAL 0x50 // 100 ms
+#endif
+
 #define NUM_SENSORS 3
 
 // Sensor variables
@@ -60,11 +71,11 @@ static struct bt_uuid_128 pawr_char_uuid =
     BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 static uint16_t pawr_attr_handle;
 static const struct bt_le_per_adv_param per_adv_params = {
-    .interval_min = 0xFF, // 318.75 ms
-    .interval_max = 0xFF, // 318.75 ms
+    .interval_min = PA_INTERVAL,
+    .interval_max = PA_INTERVAL,
     .options = 0, // No options
     .num_subevents = NUM_SUBEVENTS, // 3
-    .subevent_interval = 0x50, // 100 ms
+    .subevent_interval = SUBEVENT_INTERVAL,
     .response_slot_delay = 0x5, // 6.25 ms
     .response_slot_spacing = 0xFA, // 31.25 ms
     .num_response_slots = NUM_RSP_SLOTS, // 1
