@@ -84,8 +84,8 @@ void epaper_display_update_sensor_data(void)
     resume_display(display_dev, display_bus_dev);
     sprintf(text, "---- SENSOR NODE #%d ----\n\n Temperature: %.2f °C\n Humidity: %0.2f %%",
         DEVICE_ID,
-        sensor_value_to_double(&sensor_data.temp),
-        sensor_value_to_double(&sensor_data.humidity));
+        sensor_value_to_float(&sensor_data.temp),
+        sensor_value_to_float(&sensor_data.humidity));
     lv_label_set_text(obj, text);
     lv_task_handler();
     suspend_display(display_dev, display_bus_dev);

@@ -190,12 +190,12 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
         // Check for command type (Temperature vs. Humidity)
         if (request_command == PAWR_CMD_REQUEST_TEMP)
         {
-            printk("\tReceived request for temperature data.\n\tResponding with Temperature = %.2f °C\n", sensor_value_to_double(&sensor_data.temp));
+            printk("\tReceived request for temperature data.\n\tResponding with Temperature = %.2f °C\n", sensor_value_to_float(&sensor_data.temp));
             rsp_data.sensor_reading = sensor_data.temp;
         }
         else if (request_command == PAWR_CMD_REQUEST_HUMIDITY)
         {
-            printk("\tReceived request for humidity data.\n\tResponding with Humidity = %0.2f %%\n", sensor_value_to_double(&sensor_data.humidity));
+            printk("\tReceived request for humidity data.\n\tResponding with Humidity = %0.2f %%\n", sensor_value_to_float(&sensor_data.humidity));
             rsp_data.sensor_reading = sensor_data.humidity;
         }
         else
