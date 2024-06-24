@@ -306,14 +306,14 @@ void init_bufs(void)
 }
 
 // GATT Definitions
+
+// Strings for the User Descriptions
 #define SENSOR_1_TEMP_DESCRIPTION "Sensor 1 Temperature"
 #define SENSOR_1_HUM_DESCRIPTION "Sensor 1 Humidity"
 #define SENSOR_2_TEMP_DESCRIPTION "Sensor 2 Temperature"
 #define SENSOR_2_HUM_DESCRIPTION "Sensor 2 Humidity"
 #define SENSOR_3_TEMP_DESCRIPTION "Sensor 3 Temperature"
 #define SENSOR_3_HUM_DESCRIPTION "Sensor 3 Humidity"
-#define SENSOR_4_TEMP_DESCRIPTION "Sensor 4 Temperature"
-#define SENSOR_4_HUM_DESCRIPTION "Sensor 4 Humidity"
 
 static ssize_t read_sensor_1_temp(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf, uint16_t len, uint16_t offset)
 {
@@ -383,9 +383,40 @@ static struct bt_uuid_128 ws_sensor_3_temp_char_uuid =
 static struct bt_uuid_128 ws_sensor_3_hum_char_uuid =
     BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef8));
 
-// Offset between each CCC descriptor for temperature and humidity characteristics
-#define CCC_OFFSET 8
-
+// --- Weather Station Service ---
+// The handles are in the following sequence:
+// Format: [INDEX INTO THE ATTRIBUTE TABLE] [ATTRIBUTE]
+// [0] Weather Station Service
+// [1] Sensor 1 Temperature characteristic declaration
+// [2] Sensor 1 Temperature characteristic value
+// [3] Sensor 1 Temperature characteristic client configuration descriptor (CCC)
+// [4] Sensor 1 Temperature characteristic presentation format descriptor (CPF)
+// [5] Sensor 1 Temperature characteristic user description (CUD)
+// [6] Sensor 1 Humidity characteristic declaration
+// [7] Sensor 1 Humidity characteristic value
+// [8] Sensor 1 Humidity characteristic client configuration descriptor (CCC)
+// [9] Sensor 1 Humidity characteristic presentation format descriptor (CPF)
+// [10] Sensor 1 Humidity characteristic user description (CUD)
+// [11] Sensor 2 Temperature characteristic declaration
+// [12] Sensor 2 Temperature characteristic value
+// [13] Sensor 2 Temperature characteristic client configuration descriptor (CCC)
+// [14] Sensor 2 Temperature characteristic presentation format descriptor (CPF)
+// [15] Sensor 2 Temperature characteristic user description (CUD)
+// [16] Sensor 2 Humidity characteristic declaration
+// [17] Sensor 2 Humidity characteristic value
+// [18] Sensor 2 Humidity characteristic client configuration descriptor (CCC)
+// [19] Sensor 2 Humidity characteristic presentation format descriptor (CPF)
+// [20] Sensor 2 Humidity characteristic user description (CUD)
+// [21] Sensor 3 Temperature characteristic declaration
+// [22] Sensor 3 Temperature characteristic value
+// [23] Sensor 3 Temperature characteristic client configuration descriptor (CCC)
+// [24] Sensor 3 Temperature characteristic presentation format descriptor (CPF)
+// [25] Sensor 3 Temperature characteristic user description (CUD)
+// [26] Sensor 3 Humidity characteristic declaration
+// [27] Sensor 3 Humidity characteristic value
+// [28] Sensor 3 Humidity characteristic client configuration descriptor (CCC)
+// [29] Sensor 3 Humidity characteristic presentation format descriptor (CPF)
+// [30] Sensor 3 Humidity characteristic user description (CUD)
 BT_GATT_SERVICE_DEFINE(
     ws_svc,
     
@@ -490,6 +521,13 @@ static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_dat
     }
 }
 
+// Initial temperature characteristic declaration index
+#define INITIAL_TEMP_CHAR_DEC_INDEX 1
+// Initial humidity characteristic declaration index
+#define INITIAL_HUM_CHAR_DEC_INDEX 6
+// Offset between each characteristic declaration index
+#define CHAR_DEC_INDEX_OFFSET 10
+
 static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
              struct net_buf_simple *buf)
 {
@@ -498,57 +536,98 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
 
         printk("\n\nReceived Response in Subevent #%d, Response Slot #%d [Data length = %d bytes]\n", info->subevent, info->response_slot, buf->len);
 
-        // Validate the data received
+        // Format of data is as follows:
+        // [0] Length
+        // [1] Type
+        // [2] Company ID (LSB)
+        // [3] Company ID (MSB)
+        // [4] Device ID
+        // [5] Command
+        // [6-13] Sensor Value
+
+        // Validate the data received:
+
+        // 1. Make sure the length is correct
         if ((buf->len == RESPONSE_DATA_SIZE+1)
+        // 2. Make sure the length is as expected
             && (buf->data[0] == RESPONSE_DATA_SIZE) 
-            && buf->data[1] == 0xFF
+        // 3. Make sure the type is Manufacturer Specific Data
+            && buf->data[1] == 0xFF // Manufacturer Specific Data type (0xFF)
+        // 4. Make sure the Company ID is Novel Bits
             && (buf->data[2] == (NOVEL_BITS_COMPANY_ID & 0xFF)) && (buf->data[3] == (NOVEL_BITS_COMPANY_ID >> 8)))
         {
+            uint8_t device_id = buf->data[4];
+            uint8_t command = buf->data[5];
             sensor_val = (const struct sensor_value *)&(buf->data[6]);
 
-            if (buf->data[5] == PAWR_CMD_REQUEST_TEMP)
+            // Check if the command is for temperature or humidity
+            if (command == PAWR_CMD_REQUEST_TEMP)
             {
                 int err;
+                float temp_local = sensor_value_to_float(sensor_val);
 
                 printk("\tSensor Data Type: Temperature Reading\n");
-                double temp_local = sensor_value_to_double(sensor_val);
-                sensor_temp_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(temp_local);  
+                sensor_temp_values[device_id-1] = quick_ieee11073_from_float(temp_local);  
 
-                printk("\t---- SENSOR NODE #%d ----\n\tTemperature: %.2f °C\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tTemperature: %.2f °C\n", device_id, sensor_value_to_float(sensor_val));
 
                 // Notify the connected device of the new temperature value
-                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
+
+                // We then need to do a bit of math to determine where the temperature characteristic declaration is in the Attribute array
+                // The index of the first Temperature characteristic declaration is 1, and the offset to the next one is 10
+                // So, it would be as follows: Device ID 1 -> 1, Device ID 2 -> 11, Device ID 3 -> 21
+                uint8_t temp_char_dec_index = INITIAL_TEMP_CHAR_DEC_INDEX + CHAR_DEC_INDEX_OFFSET*(device_id-1);
+
+                // Check if the connected device is subscribed to the temperature characteristic
+                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, 
+                                                             &ws_svc.attrs[temp_char_dec_index], 
+                                                             BT_GATT_CCC_NOTIFY))
                 {
-                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[1 + 10*(buf->data[4]-1)], &sensor_temp_values[buf->data[4]-1], sizeof(uint32_t));
+                    // Notify the connected device of the new temperature value
+                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[temp_char_dec_index], &sensor_temp_values[device_id-1], sizeof(uint32_t));
                     if (err) {
                         printk("Failed to notify central (err %d)\n", err);
                     }
                 }
-            } else if (buf->data[5] == PAWR_CMD_REQUEST_HUMIDITY) {
+            }
+            else if (command == PAWR_CMD_REQUEST_HUMIDITY)
+            {
                 int err;
+                float hum_local = sensor_value_to_float(sensor_val);
 
                 printk("\tSensor Data Type: Relative Humidity Reading\n");
-                double hum_local = sensor_value_to_double(sensor_val);
-                sensor_hum_values[(uint8_t)buf->data[4]-1] = quick_ieee11073_from_float(hum_local);
+                sensor_hum_values[device_id-1] = quick_ieee11073_from_float(hum_local);
 
-                printk("\t---- SENSOR NODE #%d ----\n\tHumidity: %0.2f %%\n", (uint8_t)buf->data[4], sensor_value_to_double(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tHumidity: %0.2f %%\n", device_id, sensor_value_to_float(sensor_val));
 
                 // Notify the connected device of the new humidity value
-                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[4]-1)], BT_GATT_CCC_NOTIFY))
+
+                // We then need to do a bit of math to determine where the humidity characteristic declaration is in the Attribute array
+                // The index of the first Temperature characteristic declaration is 6, and the offset to the next one is 10
+                // So, it would be as follows: Device ID 1 -> 6, Device ID 2 -> 16, Device ID 3 -> 26
+                uint8_t hum_char_dec_index = INITIAL_HUM_CHAR_DEC_INDEX + CHAR_DEC_INDEX_OFFSET*(device_id-1);
+
+                // Check if the connected device is subscribed to the humidity characteristic
+                if (peripheral_conn && bt_gatt_is_subscribed(peripheral_conn, &ws_svc.attrs[hum_char_dec_index], BT_GATT_CCC_NOTIFY))
                 {
-                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[6 + 10*(buf->data[4]-1)], &sensor_hum_values[buf->data[4]-1], sizeof(uint32_t));
+                    err = bt_gatt_notify(peripheral_conn, &ws_svc.attrs[hum_char_dec_index], &sensor_hum_values[device_id-1], sizeof(uint32_t));
                     if (err) {
                         printk("Failed to notify central (err %d)\n", err);
                     }
                 }
-            } else {
+            }
+            else
+            {
                 printk("Unknown request type received\n");
             }
         }
-        else {
+        else
+        {
             printk("Invalid data format received\n");
         }
-    } else {
+    }
+    else 
+    {
         printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
                info->response_slot);
     }
@@ -657,89 +736,88 @@ int main(void)
         err = bt_le_per_adv_set_info_transfer(pawr_adv, central_conn, 0);
         if (err) {
             printk("Failed to send PAST (err %d)\n", err);
+        }
+        else // PAST sent successfully
+        {
+            printk("PAST sent\n");
+            
+            discover_params.uuid = &pawr_char_uuid.uuid;
+            discover_params.func = discover_func;
+            discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
+            discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+            discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+            err = bt_gatt_discover(central_conn, &discover_params);
+            if (err) {
+                printk("Discovery failed (err %d)\n", err);
+            }
+            else // Discovery started successfully
+            {
+                printk("Discovery started\n");
 
-            goto disconnect;
+                err = k_sem_take(&sem_discovered, K_SECONDS(10));
+                if (err) {
+                    printk("Timed out during GATT discovery\n");
+                }
+                else // Discovery completed successfully
+                {
+                    if (currently_connected_device_id == 0xFF) {
+                        printk("No device ID found\n");
+                    }
+                    else // Device ID found
+                    {
+                        printk("Device ID: %d --> PAST sent for subevent %d and response slot %d\n",
+                                currently_connected_device_id,
+                                sync_config.subevent,
+                                sync_config.response_slot);
+
+                        // Give the device time to process the PAST and sync before writing the PAwR config
+                        k_msleep(2*per_adv_params.interval_min);        
+
+                        // Assign the subevent and response slot to the sync_config
+                        // [Note: each node will be assigned a subevent based on their device ID. Response slot will be 0 for all nodes]
+                        sync_config.subevent = currently_connected_device_id-1;
+                        sync_config.response_slot = 0;
+
+                        write_params.func = write_func;
+                        write_params.handle = pawr_attr_handle;
+                        write_params.offset = 0;
+                        write_params.data = &sync_config;
+                        write_params.length = sizeof(sync_config);
+
+                        err = bt_gatt_write(central_conn, &write_params);
+                        if (err) {
+                            printk("Write failed (err %d)\n", err);
+                        }
+                        else // Write started successfully
+                        {
+                            printk("Write started\n");
+
+                            err = k_sem_take(&sem_written, K_SECONDS(10));
+                            if (err) {
+                                printk("Timed out during GATT write\n");
+                            }
+                            else // Write completed successfully
+                            {
+                                printk("PAwR config written to device %d, disconnecting\n", currently_connected_device_id);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        discover_params.uuid = &pawr_char_uuid.uuid;
-        discover_params.func = discover_func;
-        discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
-        discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-        discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
-        err = bt_gatt_discover(central_conn, &discover_params);
-        if (err) {
-            printk("Discovery failed (err %d)\n", err);
-
-            goto disconnect;
-        }
-
-        printk("Discovery started\n");
-
-        err = k_sem_take(&sem_discovered, K_SECONDS(10));
-        if (err) {
-            printk("Timed out during GATT discovery\n");
-
-            goto disconnect;
-        }
-
-        if (currently_connected_device_id == 0xFF) {
-            printk("No device ID found\n");
-            goto disconnect;
-        }
-
-        printk("Device ID: %d --> PAST sent for subevent %d and response slot %d\n",
-                currently_connected_device_id,
-                sync_config.subevent,
-                sync_config.response_slot);
-
-        // Give the device time to process the PAST and sync before writing the PAwR config
-        k_msleep(2*per_adv_params.interval_min);        
-
-        // Assign the subevent and response slot to the sync_config
-        // [Note: each node will be assigned a subevent based on their device ID. Response slot will be 0 for all nodes]
-        sync_config.subevent = currently_connected_device_id-1;
-        sync_config.response_slot = 0;
-
-        write_params.func = write_func;
-        write_params.handle = pawr_attr_handle;
-        write_params.offset = 0;
-        write_params.data = &sync_config;
-        write_params.length = sizeof(sync_config);
-
-        err = bt_gatt_write(central_conn, &write_params);
-        if (err) {
-            printk("Write failed (err %d)\n", err);
-
-            goto disconnect;
-        }
-
-        printk("Write started\n");
-
-        err = k_sem_take(&sem_written, K_SECONDS(10));
-        if (err) {
-            printk("Timed out during GATT write\n");
-
-            goto disconnect;
-        }
-
-        printk("PAwR config written to device %d, disconnecting\n", currently_connected_device_id);
-
-disconnect:
+        // Disconnect from the device
         err = bt_conn_disconnect(central_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
         if (err) {
+            printk("Failed to disconnect (err %d)\n", err);
             return 0;
         }
 
         printk("Disconnected\n");
-
         k_sem_take(&sem_disconnected,  K_SECONDS(30));
     }
 
     printk("SHOULD NEVER REACH HERE\n");
-
-    while (true) {
-        k_sleep(K_SECONDS(1));
-    }
 
     return 0;
 }
