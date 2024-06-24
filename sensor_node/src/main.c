@@ -10,7 +10,7 @@
 #include "app/ble_interface.h"
 #include "app/epaper_display.h"
 
-// UNCOMMENT to enable low power mode
+// TODO: UNCOMMENT to enable low power mode
 // #define LOW_POWER_MODE
 
 // Define delays for Low Power Mode and Regular Mode
@@ -21,7 +21,7 @@
 #else
 #define LOOP_DELAY 100 // 100 msec in Regular Mode
 #define SENSOR_UDPATE_DELAY 1000 // 1 second in Regular Mode
-#define DISPLAY_UPDATE_DELAY 10000 // 10 seconds in Regular Mode
+#define DISPLAY_UPDATE_DELAY 30000 // 30 seconds in Regular Mode
 #endif
 
 // Sensor data
