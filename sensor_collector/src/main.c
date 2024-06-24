@@ -484,8 +484,6 @@ static void request_cb(struct bt_le_ext_adv *adv, const struct bt_le_per_adv_dat
         subevent_data_params[i].data = buf;
     }
 
-    // k_sleep(K_MSEC(10));
-
     err = bt_le_per_adv_set_subevent_data(adv, to_send, subevent_data_params);
     if (err) {
         printk("Failed to set subevent data (err %d)\n", err);
