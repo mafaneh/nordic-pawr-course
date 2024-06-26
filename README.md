@@ -13,6 +13,7 @@ It utilizes cutting-edge Bluetooth Low Energy technology features, like Periodic
 
 By the end of the course, you will have a solid understanding of the practical applications of Bluetooth Low Energy, how to optimize for power efficiency, and how to build a large-scale centralized sensor network using PAwR.
 
+## Registration (FREE)
 Register [here](https://academy.novelbits.io/register/nordic-pawr-weather-station-ble/) to access the full course and start today!
 
 ## What You’ll Learn
