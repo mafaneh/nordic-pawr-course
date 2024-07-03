@@ -31,9 +31,9 @@ Register [here](https://academy.novelbits.io/register/nordic-pawr-weather-statio
 ## Who Should Enroll?
 The course is designed for embedded software engineers, firmware developers, students, makers, or anyone with prior experience with Bluetooth Low Energy development and the nRF Connect SDK/Zephyr RTOS with the goal of developing large-scale, low-power Bluetooth-based centralized systems.
 
-## Who Shouldn’t Enroll?
-- Complete beginners in Bluetooth Low Energy development. For those just starting out with Bluetooth LE, it is recommended that they join the Bluetooth Developer Academy and/or take Nordic’s DevAcademy “Bluetooth Low Energy Fundamentals” course.
-- Beginners in Zephyr RTOS and nRF Connect SDK development. For those just starting out, taking the Nordic DevAcademy “nRF Connect SDK Fundamentals” course is highly recommended.
+For those just starting out with Bluetooth LE, joining the Bluetooth Developer Academy and/or taking Nordic’s DevAcademy “Bluetooth Low Energy Fundamentals” course (linked above) is highly recommended.
+
+For those just starting out, taking the Nordic DevAcademy “nRF Connect SDK Fundamentals” course is highly recommended.
 
 ## Zero Risk – FREE!
 This is a 100% Free course, so there’s no risk in enrolling. The content is also self-paced, so you can take your time and review the material at your leisure.
