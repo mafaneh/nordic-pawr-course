@@ -25,8 +25,8 @@ Register [here](https://academy.novelbits.io/register/nordic-pawr-weather-statio
 - How to utilize the different development tools available from Nordic Semiconductor to streamline your development process (e.g., Power Profiler Kit II, nRF Connect for Desktop, nRF Connect for mobile, etc.)
 
 ## Prerequisites
-- [Required] Nordic DevAcademy nRF Connect SDK Fundamentals course
-- [Required] Nordic DevAcademy Bluetooth Low Energy Fundamentals course
+[Required] [Nordic DevAcademy nRF Connect SDK Fundamentals course](https://hubs.li/Q02CMx1Y0)
+[Required] [Nordic DevAcademy Bluetooth Low Energy Fundamentals course](https://hubs.li/Q02CMx6p0)
 
 ## Who Should Enroll?
 The course is designed for embedded software engineers, firmware developers, students, makers, or anyone with prior experience with Bluetooth Low Energy development and the nRF Connect SDK/Zephyr RTOS with the goal of developing large-scale, low-power Bluetooth-based centralized systems.
@@ -42,8 +42,8 @@ This is a 100% Free course, so there’s no risk in enrolling. The content is al
 
 **Quantity** | **Hardware Component**
 :---: | :---
-|4|[Nordic Semiconductor nRF52840 DK](https://www.nordicsemi.com/Products/Development-hardware/nRF52840-DK)|
-|1|[Nordic Semiconductor Power Profiler Kit II](https://www.nordicsemi.com/Products/Development-hardware/Power-Profiler-Kit-2)|
+|4|[Nordic Semiconductor nRF52840 DK](https://hubs.li/Q02CMxQt0)|
+|1|[Nordic Semiconductor Power Profiler Kit II](https://hubs.li/Q02CMw-Q0)|
 |3|[Waveshare 250×122, 2.13inch E-Ink raw display panel](https://www.waveshare.com/2.13inch-e-paper.htm)|
 |3|[Waveshare Universal E-Paper Raw Panel Driver Shield (B)](https://www.waveshare.com/e-paper-shield-b.htm)|
 |3|[Adafruit Sensirion SHT40 Temperature & Humidity Sensor](https://www.adafruit.com/product/4885)|
