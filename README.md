@@ -25,8 +25,8 @@ Register [here](https://academy.novelbits.io/register/nordic-pawr-weather-statio
 - How to utilize the different development tools available from Nordic Semiconductor to streamline your development process (e.g., Power Profiler Kit II, nRF Connect for Desktop, nRF Connect for mobile, etc.)
 
 ## Prerequisites
-[Required] [Nordic DevAcademy nRF Connect SDK Fundamentals course](https://hubs.li/Q02CMx1Y0)
-[Required] [Nordic DevAcademy Bluetooth Low Energy Fundamentals course](https://hubs.li/Q02CMx6p0)
+- [Required] [Nordic DevAcademy nRF Connect SDK Fundamentals course](https://hubs.li/Q02CMx1Y0)
+- [Required] [Nordic DevAcademy Bluetooth Low Energy Fundamentals course](https://hubs.li/Q02CMx6p0)
 
 ## Who Should Enroll?
 The course is designed for embedded software engineers, firmware developers, students, makers, or anyone with prior experience with Bluetooth Low Energy development and the nRF Connect SDK/Zephyr RTOS with the goal of developing large-scale, low-power Bluetooth-based centralized systems.
