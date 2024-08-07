@@ -30,13 +30,13 @@ static int suspend_display(const struct device *display_dev,
 
     ret = pm_device_action_run(display_dev, PM_DEVICE_ACTION_SUSPEND);
     if (ret < 0) {
-        printk("Could not suspend the display");
+        printk("Could not suspend the display\n");
         return ret;
     }
 
     ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_SUSPEND);
     if (ret < 0) {
-        printk("Could not suspend the display bus");
+        printk("Could not suspend the display bus\n");
         return ret;
     }
 
@@ -50,13 +50,13 @@ static int resume_display(const struct device *display_dev,
 
     ret = pm_device_action_run(display_dev, PM_DEVICE_ACTION_RESUME);
     if (ret < 0) {
-        printk("Could not resume the display");
+        printk("Could not resume the display\n");
         return ret;
     }
 
     ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_RESUME);
     if (ret < 0) {
-        printk("Could not resume the display bus");
+        printk("Could not resume the display bus\n");
         return ret;
     }
 
@@ -84,8 +84,8 @@ void epaper_display_update_sensor_data(void)
     resume_display(display_dev, display_bus_dev);
     sprintf(text, "---- SENSOR NODE #%d ----\n\n Temperature: %.2f °C\n Humidity: %0.2f %%",
         DEVICE_ID,
-        sensor_value_to_float(&sensor_data.temp),
-        sensor_value_to_float(&sensor_data.humidity));
+         (double)sensor_value_to_float(&sensor_data.temp),
+         (double)sensor_value_to_float(&sensor_data.humidity));
     lv_label_set_text(obj, text);
     lv_task_handler();
     suspend_display(display_dev, display_bus_dev);

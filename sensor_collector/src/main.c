@@ -569,7 +569,7 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
                 printk("\tSensor Data Type: Temperature Reading\n");
                 sensor_temp_values[device_id-1] = quick_ieee11073_from_float(temp_local);  
 
-                printk("\t---- SENSOR NODE #%d ----\n\tTemperature: %.2f °C\n", device_id, sensor_value_to_float(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tTemperature: %.2f °C\n", device_id, (double)sensor_value_to_float(sensor_val));
 
                 // Notify the connected device of the new temperature value
 
@@ -598,7 +598,7 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
                 printk("\tSensor Data Type: Relative Humidity Reading\n");
                 sensor_hum_values[device_id-1] = quick_ieee11073_from_float(hum_local);
 
-                printk("\t---- SENSOR NODE #%d ----\n\tHumidity: %0.2f %%\n", device_id, sensor_value_to_float(sensor_val));
+                printk("\t---- SENSOR NODE #%d ----\n\tHumidity: %0.2f %%\n", device_id, (double)sensor_value_to_float(sensor_val));
 
                 // Notify the connected device of the new humidity value
 

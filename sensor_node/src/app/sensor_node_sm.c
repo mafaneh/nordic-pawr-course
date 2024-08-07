@@ -35,10 +35,10 @@ static void synced_exit(void *o)
 static const struct smf_state endnode_states[] = {
 
 		// NotSynced State
-        [NotSynced] = SMF_CREATE_STATE(notsynced_entry, NULL, NULL),
+        [NotSynced] = SMF_CREATE_STATE(notsynced_entry, NULL, NULL, NULL, NULL),
 
 		// Synced State
-        [Synced] = SMF_CREATE_STATE(NULL, NULL, synced_exit)
+        [Synced] = SMF_CREATE_STATE(NULL, NULL, synced_exit, NULL, NULL),
 };
 
 // State machine initialization
