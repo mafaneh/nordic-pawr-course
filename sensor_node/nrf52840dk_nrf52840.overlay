@@ -15,6 +15,7 @@
     mysensor: sht4x@44 {
         compatible = "sensirion,sht4x";
         repeatability = <2>;
-        reg = <0x44>;
+        reg = <0x44>;   
     };
+    /delete-property/ zephyr,pm-device-runtime-auto;
 };

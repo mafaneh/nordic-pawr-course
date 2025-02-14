@@ -30,15 +30,15 @@ static int suspend_display(const struct device *display_dev,
 
     ret = pm_device_action_run(display_dev, PM_DEVICE_ACTION_SUSPEND);
     if (ret < 0) {
-        printk("Could not suspend the display");
+        printk("Could not suspend the display\n");
         return ret;
     }
 
-    ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_SUSPEND);
-    if (ret < 0) {
-        printk("Could not suspend the display bus");
-        return ret;
-    }
+    // ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_SUSPEND);
+    // if (ret < 0) {
+    //     printk("Could not suspend the display bus");
+    //     return ret;
+    // }
 
     return 0;
 }
@@ -50,15 +50,15 @@ static int resume_display(const struct device *display_dev,
 
     ret = pm_device_action_run(display_dev, PM_DEVICE_ACTION_RESUME);
     if (ret < 0) {
-        printk("Could not resume the display");
+        printk("Could not resume the display\n");
         return ret;
     }
 
-    ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_RESUME);
-    if (ret < 0) {
-        printk("Could not resume the display bus");
-        return ret;
-    }
+    // ret = pm_device_action_run(display_bus_dev, PM_DEVICE_ACTION_RESUME);
+    // if (ret < 0) {
+    //     printk("Could not resume the display bus");
+    //     return ret;
+    // }
 
     return 0;
 }
@@ -73,7 +73,11 @@ static void initialize_display_style(void)
     lv_obj_add_style(obj, &style1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color( obj, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_center(obj);
+
+    display_blanking_on(display_dev);
     lv_task_handler();
+    display_blanking_off(display_dev);    
+    
     suspend_display(display_dev, display_bus_dev);
 }
 
@@ -87,7 +91,11 @@ void epaper_display_update_sensor_data(void)
         sensor_value_to_float(&sensor_data.temp),
         sensor_value_to_float(&sensor_data.humidity));
     lv_label_set_text(obj, text);
+
+    display_blanking_on(display_dev);
     lv_task_handler();
+    display_blanking_off(display_dev);    
+    
     suspend_display(display_dev, display_bus_dev);
 }
 
